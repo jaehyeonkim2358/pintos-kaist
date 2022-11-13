@@ -275,6 +275,15 @@ cond_init (struct condition *cond) {
 void
 cond_wait (struct condition *cond, struct lock *lock) {
 	struct semaphore_elem waiter;
+    /**
+     * semaphore_elem 타입 구조체 변수인 waiter는 두 개의 멤버를 갖는다.
+     * 두 멤버의 cond_wait() 에서의 사용 목적은 다음과 같다.
+     * 1. semaphore semaphore  : 
+     * 2. list_elem elem       : waiter를 cond->waiters에 넣어줄때 이 elem을 이용해서 넣어준다.
+     *                           어떤 list의 구성 요소로서 사용될 수 있는 타입은 list_elem 타입 뿐인데,
+     *                           waiter가 cond->waiters의 element로서 push되기 위해서는 
+     *                           waiter 자신을 대변하는 list_elem 타입의 멤버가 필요했던것이다.
+    */
 
 	ASSERT (cond != NULL);
 	ASSERT (lock != NULL);
