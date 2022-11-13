@@ -7,6 +7,7 @@
 #include "threads/io.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include <stdlib.h>
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -29,6 +30,11 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 
+// 재현 코드
+static struct semaphore sleep_list;
+void timer_sema_sleep(struct semaphore *sema);
+void timer_sema_wakeup(struct semaphore *sema, int64_t ticks);
+
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -41,6 +47,11 @@ timer_init (void) {
 	outb (0x43, 0x34);    /* CW: counter 0, LSB then MSB, mode 2, binary. */
 	outb (0x40, count & 0xff);
 	outb (0x40, count >> 8);
+
+    // sleep_sema의 integer value를 1로 초기화해준다.
+    sleep_list = *(struct semaphore*)malloc(sizeof(struct semaphore));
+    sleep_list.waiters = *(struct list*)malloc(sizeof(struct list));
+    sema_init(&sleep_list, 1);
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -88,13 +99,70 @@ timer_elapsed (int64_t then) {
 }
 
 /* Suspends execution for approximately TICKS timer ticks. */
+/**
+ *  timer_init에서 sema_init(&sleep_sema, 1); 으로 sleep_sema를 초기화했다.
+*/
 void
 timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
+    
+    // 아래의 while문에서, sema_down()을 실행하기 위해서는 현재 INTR_ON 상태여야하냐? 몰루겠다
+    ASSERT(intr_get_level() == INTR_ON);
 
-	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+    // 아직 ticks만큼 시간이 흐르지 않았다면, sema_down()을 호출한다.
+
+    // 현재 쓰레드를 쓰레드 A라고 하자,
+
+    // sema_down()은 쓰레드 A를 sleep_sema의 waiters에 넣고,
+    // 쓰레드 A의 상태를 RUNNING에서 BLOCKED로 변경한 뒤,
+    // ready_list에서 pop_left한 하나의 쓰레드 'next'를 thread_launch()의 인자로 전달하여 실행시키며
+    // thread_launch()는 쓰레드 A에서 쓰레드 'next'로 context switching 을 실시한다.
+    // 그래서 쓰레드 A는 sema_down() 함수 내부의 thread_block(); 라인에서 완전히 멈춰있다. (사실 더 내부의 thread_launch에서 멈춰있겠지만, 거기는 지금 이야기 하고자 하는 맥락에서는 의미 없는 실행 단위이다.)
+    // 그리고 이 모든 과정은 [interrupt의 비활성화 - 활성화 블록] 안에서 일어나기 때문에 원자성이 유지된다.
+
+    // 쓰레드 A에서 sema_down()이 return될 수 있는 상황은, 다른 쓰레드가 sema_up()을 실행할때 이다.
+    // sema_up()은 sleep_sema의 waiters에서 하나의 thread를 pop_left하여 이를 ready_list에 넣어준다.
+    // 이때 ready_list에 들어간 thread가 쓰레드 A라면 
+    // 쓰레드 A의 status는 BLOCKED에서 READY로 바뀌었을것이고,
+    // 다음 context-switching이 일어날 때 running하기 위해 ready_list에서 pop_left해서 나온 쓰레드가 쓰레드 A라면,
+    // 쓰레드 A가 실행될 것이다.
+
+    // 쓰레드 A는 block되기 직전에 thread_block(); 라인에 멈춰있었으므로, thread_block(); 라인 부터 실행될 것이고,
+    // 이때, 운좋게도 sema->value가 1이라면(현재 공유 자원을 사용하고 있는 쓰레드가 하나도 없다면)
+    // sema->value를 1 감소시켜 공유자원이 사용되고 있다는 사실을 모든 쓰레드들이 확인 할 수 있게 갱신한다. (내가 공유자원을 쓰고있다! 하하)
+    // 마찬가지로 이 모든 과정은 [interrupt의 비활성화 - 활성화 블록] 안에서 진행된다.
+    // 그리고 마지막에 interrupt를 활성화 한 뒤 sema_down()이 return 된다.
+
+    // sema_down()이 return 되었다면, 다시 while 조건문 에서 ticks 만큼의 시간이 흘렀는지 확인할 것이다.
+    thread_current ()->sleep_ticks = start + ticks;
+    while(timer_elapsed (start) < ticks) {
+        sema_down(&sleep_list);
+    }
+}
+
+
+void
+timer_sema_wakeup(struct semaphore *sema, int64_t ticks) {
+    enum intr_level old_level;
+    struct thread *t;
+
+	ASSERT (sema != NULL);
+	old_level = intr_disable ();
+
+	if (!list_empty (&sema->waiters)) {
+        int size = list_size(&sema->waiters);
+        for(int i = 0; i < size; i++) {
+            t = list_entry (list_pop_front (&sema->waiters), struct thread, elem);
+            if(t->sleep_ticks > ticks) {
+                list_push_back (&sema->waiters, &t->elem);
+            } else {
+                thread_unblock (t);
+                sema->value++;
+            }
+        }
+    }
+
+	intr_set_level (old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -126,6 +194,7 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+    timer_sema_wakeup(&sleep_list, ticks);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
