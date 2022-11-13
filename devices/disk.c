@@ -249,7 +249,7 @@ disk_write (struct disk *d, disk_sector_t sec_no, const void *buffer) {
 	d->write_cnt++;
 	lock_release (&c->lock);
 }
-
+
 /* Disk detection and identification. */
 
 static void print_ata_string (char *string, size_t size);
