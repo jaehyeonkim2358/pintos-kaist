@@ -30,11 +30,6 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 
-// 재현 코드
-static struct semaphore sleep_list;
-void timer_sema_sleep(struct semaphore *sema);
-void timer_sema_wakeup(struct semaphore *sema, int64_t ticks);
-
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -47,11 +42,6 @@ timer_init (void) {
 	outb (0x43, 0x34);    /* CW: counter 0, LSB then MSB, mode 2, binary. */
 	outb (0x40, count & 0xff);
 	outb (0x40, count >> 8);
-
-    // sleep_sema의 integer value를 1로 초기화해준다.
-    sleep_list = *(struct semaphore*)malloc(sizeof(struct semaphore));
-    sleep_list.waiters = *(struct list*)malloc(sizeof(struct list));
-    sema_init(&sleep_list, 1);
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -98,16 +88,14 @@ timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
 }
 
+/* PROJECT 1 - Alarm Clock */
 /* Suspends execution for approximately TICKS timer ticks. */
-/**
- *  timer_init에서 sema_init(&sleep_sema, 1); 으로 sleep_sema를 초기화했다.
-*/
 void
 timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
     
     // 아래의 while문에서, sema_down()을 실행하기 위해서는 현재 INTR_ON 상태여야하냐? 몰루겠다
-    ASSERT(intr_get_level() == INTR_ON);
+    // ASSERT(intr_get_level() == INTR_ON);
 
     // 아직 ticks만큼 시간이 흐르지 않았다면, sema_down()을 호출한다.
 
@@ -134,35 +122,10 @@ timer_sleep (int64_t ticks) {
     // 그리고 마지막에 interrupt를 활성화 한 뒤 sema_down()이 return 된다.
 
     // sema_down()이 return 되었다면, 다시 while 조건문 에서 ticks 만큼의 시간이 흘렀는지 확인할 것이다.
-    thread_current ()->sleep_ticks = start + ticks;
+    thread_current ()->wakeup_ticks = start + ticks;
     while(timer_elapsed (start) < ticks) {
-        sema_down(&sleep_list);
+        sema_down(get_sleep_list());
     }
-}
-
-
-void
-timer_sema_wakeup(struct semaphore *sema, int64_t ticks) {
-    enum intr_level old_level;
-    struct thread *t;
-
-	ASSERT (sema != NULL);
-	old_level = intr_disable ();
-
-	if (!list_empty (&sema->waiters)) {
-        int size = list_size(&sema->waiters);
-        for(int i = 0; i < size; i++) {
-            t = list_entry (list_pop_front (&sema->waiters), struct thread, elem);
-            if(t->sleep_ticks > ticks) {
-                list_push_back (&sema->waiters, &t->elem);
-            } else {
-                thread_unblock (t);
-                sema->value++;
-            }
-        }
-    }
-
-	intr_set_level (old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -194,7 +157,7 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
-    timer_sema_wakeup(&sleep_list, ticks);
+    thread_wakeup(get_sleep_list(), ticks);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
