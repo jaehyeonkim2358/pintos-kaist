@@ -40,6 +40,9 @@ static struct lock tid_lock;
 /* Thread destruction requests */
 static struct list destruction_req;
 
+/* PROJECT 1 - Alarm Clock */
+static struct semaphore sleep_list;
+
 /* Statistics. */
 static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
@@ -109,6 +112,9 @@ thread_init (void) {
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&destruction_req);
+
+    /* PROJECT 1 - Alarm Clock */
+    sema_init(&sleep_list, 1);
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
@@ -587,4 +593,38 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+/**
+ * SEMA->waiters에 존재하는 Blocked threads 중, 
+ * wakeup_ticks <= TICKS 가 성립하는 thread를 찾아 
+ * SEMA->waiters에서 제거하고 unblock 시킨다. */
+void
+thread_wakeup(struct semaphore *sema, int64_t ticks) {
+    enum intr_level old_level;
+    struct thread *t;
+
+	ASSERT (sema != NULL);
+
+	old_level = intr_disable ();
+
+	if (!list_empty (&sema->waiters)) {
+        int size = list_size(&sema->waiters);
+        for(int i = 0; i < size; i++) {
+            t = list_entry (list_pop_front (&sema->waiters), struct thread, elem);
+            if(t->wakeup_ticks > ticks) {
+                list_push_back (&sema->waiters, &t->elem);
+            } else {
+                thread_unblock (t);
+                sema->value++;
+            }
+        }
+    }
+
+	intr_set_level (old_level);
+}
+
+/* sleep_list의 pointer를 return한다. */
+struct semaphore *get_sleep_list(void) {
+    return &sleep_list;
 }
