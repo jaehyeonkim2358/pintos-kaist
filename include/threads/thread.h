@@ -92,7 +92,8 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-    int64_t wakeup_ticks;               /* Blocked thread가 Ready될 시간 */
+    int64_t wakeup_ticks;               /* PROJECT 1 - Alarm Clock */
+    int ori_priority;                   /* PROJECT 1 - Priority Scheduling */
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
@@ -148,5 +149,10 @@ void do_iret (struct intr_frame *tf);
 /* PROJECT 1 - Alarm Clock */
 void thread_wakeup(struct semaphore *sema, int64_t ticks);
 struct semaphore *get_sleep_list(void);
+
+/* PROJECT 1 - Priority Scheduling */
+bool thread_compare(const struct list_elem *a, const struct list_elem *b, void *aux);
+struct thread *thread_pop_max(struct list *list);
+struct thread *thread_get_max(struct list *list);
 
 #endif /* threads/thread.h */

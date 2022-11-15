@@ -213,6 +213,11 @@ thread_create (const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock (t);
 
+    /* PROJECT 1 - Priority Scheduling */
+    if(thread_current()->priority < t->priority) {
+        thread_yield();
+    }
+
 	return tid;
 }
 
@@ -308,21 +313,42 @@ thread_yield (void) {
 	ASSERT (!intr_context ());
 
 	old_level = intr_disable ();
-	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
-	do_schedule (THREAD_READY);
+    if (curr != idle_thread)
+        list_push_back (&ready_list, &curr->elem); 
+    do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+    int64_t old_level;
+    old_level = intr_disable();
+    
+    /**
+     * ori_priority가 0이 아니라는건 
+     * thread_current()가 지금 어떤 lock의 holder라는 뜻이야.
+    */
+    if(thread_current ()->ori_priority != 0) {
+        thread_current ()->ori_priority = new_priority;
+    } else {
+        thread_current ()->priority = new_priority;
+    }
+
+    if(new_priority < thread_get_max(&ready_list)->priority) {
+        thread_yield();
+    }
+    
+    intr_set_level(old_level);
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) {
+    /**
+     * ori_priority가 0이 아니라는건 
+     * thread_current()가 지금 어떤 lock의 holder라는 뜻이야.
+    */
 	return thread_current ()->priority;
 }
 
@@ -417,6 +443,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->magic = THREAD_MAGIC;
 }
 
+bool
+thread_compare(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+    return list_entry(a, struct thread, elem)->priority < 
+            list_entry(b, struct thread, elem)->priority;
+}
+
 /* Chooses and returns the next thread to be scheduled.  Should
    return a thread from the run queue, unless the run queue is
    empty.  (If the running thread can continue running, then it
@@ -424,10 +456,11 @@ init_thread (struct thread *t, const char *name, int priority) {
    idle_thread. */
 static struct thread *
 next_thread_to_run (void) {
-	if (list_empty (&ready_list))
-		return idle_thread;
-	else
-		return list_entry (list_pop_front (&ready_list), struct thread, elem);
+	if (list_empty (&ready_list)) {
+        return idle_thread;
+    } else {
+		return thread_pop_max(&ready_list);
+    }
 }
 
 /* Use iretq to launch the thread */
@@ -627,4 +660,15 @@ thread_wakeup(struct semaphore *sema, int64_t ticks) {
 /* sleep_list의 pointer를 return한다. */
 struct semaphore *get_sleep_list(void) {
     return &sleep_list;
+}
+
+struct thread *thread_pop_max(struct list *list) {
+    struct list_elem *max_elem;
+    max_elem = list_max(list, thread_compare, NULL);
+    list_remove(max_elem);
+    return list_entry(max_elem, struct thread, elem);
+}
+
+struct thread *thread_get_max(struct list *list) {
+    return list_entry(list_max(list, thread_compare, NULL), struct thread, elem);
 }

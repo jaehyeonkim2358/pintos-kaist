@@ -105,14 +105,21 @@ sema_try_down (struct semaphore *sema) {
 void
 sema_up (struct semaphore *sema) {
 	enum intr_level old_level;
+    struct thread *t = NULL;
 
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
-	sema->value++;
+    
+    sema->value++;
+	if (!list_empty (&sema->waiters)) {
+        /* PROJECT 1 - Priority Scheduling */
+        t = thread_pop_max(&sema->waiters);
+        thread_unblock(t);
+    }
+    if(t != NULL && thread_get_priority() <= t->priority) {
+        thread_yield();
+    }
 	intr_set_level (old_level);
 }
 
@@ -184,12 +191,36 @@ lock_init (struct lock *lock) {
    we need to sleep. */
 void
 lock_acquire (struct lock *lock) {
+    /* PROJECT 1 - Priority Scheduling */
+    struct thread *old_holder = NULL;
+    int64_t old_level;
+
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
-	sema_down (&lock->semaphore);
-	lock->holder = thread_current ();
+    old_level = intr_disable();
+
+    /* PROJECT 1 - Priority Scheduling */
+    if(lock->holder != NULL) {
+        old_holder = lock->holder;
+        if(lock->holder->ori_priority == 0) {
+            lock->holder->ori_priority = lock->holder->priority;
+        }
+        if(lock->holder->priority < thread_get_priority()) {
+            lock->holder->priority = thread_get_priority();
+        }
+    }
+    
+    sema_down (&lock->semaphore);
+
+    /* PROJECT 1 - Priority Scheduling */
+    if(old_holder != NULL) {
+        old_holder->priority = old_holder->ori_priority;
+    }
+
+    lock->holder = thread_current ();
+    intr_set_level(old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -275,15 +306,6 @@ cond_init (struct condition *cond) {
 void
 cond_wait (struct condition *cond, struct lock *lock) {
 	struct semaphore_elem waiter;
-    /**
-     * semaphore_elem 타입 구조체 변수인 waiter는 두 개의 멤버를 갖는다.
-     * 두 멤버의 cond_wait() 에서의 사용 목적은 다음과 같다.
-     * 1. semaphore semaphore  : 
-     * 2. list_elem elem       : waiter를 cond->waiters에 넣어줄때 이 elem을 이용해서 넣어준다.
-     *                           어떤 list의 구성 요소로서 사용될 수 있는 타입은 list_elem 타입 뿐인데,
-     *                           waiter가 cond->waiters의 element로서 push되기 위해서는 
-     *                           waiter 자신을 대변하는 list_elem 타입의 멤버가 필요했던것이다.
-    */
 
 	ASSERT (cond != NULL);
 	ASSERT (lock != NULL);
@@ -306,14 +328,24 @@ cond_wait (struct condition *cond, struct lock *lock) {
    interrupt handler. */
 void
 cond_signal (struct condition *cond, struct lock *lock UNUSED) {
+    struct semaphore *max_sema;
 	ASSERT (cond != NULL);
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 
-	if (!list_empty (&cond->waiters))
-		sema_up (&list_entry (list_pop_front (&cond->waiters),
-					struct semaphore_elem, elem)->semaphore);
+	if (!list_empty (&cond->waiters)) {
+        max_sema = sema_pop_max(&cond->waiters);
+        sema_up (max_sema);
+        // printf(":::::::::::::::::%d\n", list_entry(list_begin(&max_sema->waiters), struct thread, elem)->priority);
+        // sema_up (&list_entry (list_pop_front (&cond->waiters), struct semaphore_elem, elem)->semaphore);
+    }
+    // if(!list_empty (&cond->waiters)) {
+    //     if(thread_get_priority() < ) {
+    //         thread_yield();
+    //     }
+    // }
+    
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
@@ -329,4 +361,21 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
 
 	while (!list_empty (&cond->waiters))
 		cond_signal (cond, lock);
+}
+
+struct semaphore *
+sema_pop_max(struct list *sema_elem_list) {
+    struct list_elem *max_elem;
+    max_elem = list_max(sema_elem_list, sema_compare, NULL);
+    list_remove(max_elem);
+    return &list_entry(max_elem, struct semaphore_elem, elem)->semaphore;
+}
+
+bool
+sema_compare(const struct list_elem *a, const struct list_elem *b, void *aux) {
+    struct list_elem *ae, *be;
+    ae = list_begin(&(&list_entry(a, struct semaphore_elem, elem)->semaphore)->waiters);
+    be = list_begin(&(&list_entry(b, struct semaphore_elem, elem)->semaphore)->waiters);
+    return list_entry(ae, struct thread, elem)->priority <
+            list_entry(be, struct thread, elem)->priority;
 }
