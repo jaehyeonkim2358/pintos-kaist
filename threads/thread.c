@@ -329,7 +329,7 @@ thread_set_priority (int new_priority) {
      * ori_priority가 0이 아니라는건 
      * thread_current()가 지금 어떤 lock의 holder라는 뜻이야.
     */
-    if(thread_current ()->ori_priority != 0) {
+    if(thread_current ()->ori_priority != ORI_PRI_DEFAULT) {
         thread_current ()->ori_priority = new_priority;
     } else {
         thread_current ()->priority = new_priority;
@@ -345,10 +345,6 @@ thread_set_priority (int new_priority) {
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) {
-    /**
-     * ori_priority가 0이 아니라는건 
-     * thread_current()가 지금 어떤 lock의 holder라는 뜻이야.
-    */
 	return thread_current ()->priority;
 }
 
@@ -440,6 +436,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+    t->ori_priority = ORI_PRI_DEFAULT;
 	t->magic = THREAD_MAGIC;
 }
 
