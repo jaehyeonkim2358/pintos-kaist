@@ -96,6 +96,7 @@ struct thread {
 	int priority;                       /* Priority. */
     int64_t wakeup_ticks;               /* PROJECT 1 - Alarm Clock */
     int ori_priority;                   /* PROJECT 1 - Priority Scheduling */
+    struct list donation_list;
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */

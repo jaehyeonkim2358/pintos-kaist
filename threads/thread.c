@@ -325,10 +325,6 @@ thread_set_priority (int new_priority) {
     int64_t old_level;
     old_level = intr_disable();
     
-    /**
-     * ori_priority가 0이 아니라는건 
-     * thread_current()가 지금 어떤 lock의 holder라는 뜻이야.
-    */
     if(thread_current ()->ori_priority != ORI_PRI_DEFAULT) {
         thread_current ()->ori_priority = new_priority;
     } else {
@@ -438,12 +434,25 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->priority = priority;
     t->ori_priority = ORI_PRI_DEFAULT;
 	t->magic = THREAD_MAGIC;
+    list_init(&t->donation_list);
 }
 
 bool
 thread_compare(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
-    return list_entry(a, struct thread, elem)->priority < 
-            list_entry(b, struct thread, elem)->priority;
+    struct thread *at, *bt;
+    at = list_entry(a, struct thread, elem);
+    bt = list_entry(b, struct thread, elem);
+    if(at->priority == bt->priority) {
+        if(at->ori_priority == bt->ori_priority) {
+            return at->priority < bt->priority;
+        } else if(at->ori_priority < bt->ori_priority) {
+            return at->ori_priority != ORI_PRI_DEFAULT;
+        } else {
+            return bt->ori_priority == ORI_PRI_DEFAULT;
+        }
+    } else {
+        return at->priority < bt->priority;
+    }
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

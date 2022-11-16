@@ -17,6 +17,7 @@
 
 static thread_func a_thread_func;
 static thread_func b_thread_func;
+static void print_lock_sema_waiters(struct lock *lock);
 
 void
 test_priority_donate_multiple (void) 
@@ -36,10 +37,20 @@ test_priority_donate_multiple (void)
   lock_acquire (&b);
 
   thread_create ("a", PRI_DEFAULT + 1, a_thread_func, &a);
+  
+  /* TEST start */
+//   print_lock_sema_waiters(&a);
+  /* endof TEST */
+  
   msg ("Main thread should have priority %d.  Actual priority: %d.",
        PRI_DEFAULT + 1, thread_get_priority ());
 
   thread_create ("b", PRI_DEFAULT + 2, b_thread_func, &b);
+
+  /* TEST start */
+//   print_lock_sema_waiters(&b);
+  /* endof TEST */
+
   msg ("Main thread should have priority %d.  Actual priority: %d.",
        PRI_DEFAULT + 2, thread_get_priority ());
 
@@ -74,4 +85,29 @@ b_thread_func (void *lock_)
   msg ("Thread b acquired lock b.");
   lock_release (lock);
   msg ("Thread b finished.");
+}
+
+
+static void
+print_lock_sema_waiters(struct lock *lock) {
+    int64_t old_level;
+    struct list *l;
+    struct list_elem *cur;
+
+    old_level = intr_disable();
+    l = &lock->semaphore.waiters;
+    cur = list_begin(l);
+    printf("lock->holder_priority = %d\n", lock->holder_priority);
+    printf("lock->sema->waiters = ");
+    printf("[");
+    while(cur != list_end(l)) {
+        struct thread *t = list_entry(cur, struct thread, elem);
+        printf("%s", t->name);
+        cur = list_next(cur);
+        if(cur != list_end(l)) {
+            printf(", ");
+        }
+    }
+    printf("]\n");
+    intr_set_level(old_level);
 }

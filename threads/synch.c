@@ -192,7 +192,7 @@ sema_test_helper (void *sema_) {
 void
 lock_init (struct lock *lock) {
 	ASSERT (lock != NULL);
-
+    lock->holder_priority = ORI_PRI_DEFAULT;
 	lock->holder = NULL;
 	sema_init (&lock->semaphore, 1);
 }
@@ -208,34 +208,30 @@ lock_init (struct lock *lock) {
 void
 lock_acquire (struct lock *lock) {
     /* PROJECT 1 - Priority Scheduling */
-    
-    int64_t old_level;
-
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
-    old_level = intr_disable();
     if(!lock_try_acquire(lock)) {
         struct thread *old_holder = NULL;
+        int old_p = ORI_PRI_DEFAULT;
 
-        /* PROJECT 1 - Priority Scheduling */
         old_holder = lock->holder;
-        if(lock->holder->ori_priority == ORI_PRI_DEFAULT) {
-            lock->holder->ori_priority = lock->holder->priority;
+        if(old_holder->ori_priority == ORI_PRI_DEFAULT) {
+            old_holder->ori_priority = old_holder->priority;
+            old_p = old_holder->priority;
         }
-        if(lock->holder->priority < thread_get_priority()) {
-            lock->holder->priority = thread_get_priority();
+        if(old_holder->priority < thread_get_priority()) {
+            old_p = old_holder->priority;
+            old_holder->priority = thread_get_priority();
         }
-        
-        sema_down (&lock->semaphore);
 
-        /* PROJECT 1 - Priority Scheduling */
-        old_holder->priority = old_holder->ori_priority;
+        sema_down (&lock->semaphore);
+        
+        old_holder->priority = old_p;
 
         lock->holder = thread_current ();
     }
-    intr_set_level(old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -254,6 +250,7 @@ lock_try_acquire (struct lock *lock) {
 	success = sema_try_down (&lock->semaphore);
 	if (success)
 		lock->holder = thread_current ();
+        lock->holder_priority = thread_get_priority();
 	return success;
 }
 
@@ -267,7 +264,6 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
-
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }
