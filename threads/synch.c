@@ -192,7 +192,6 @@ sema_test_helper (void *sema_) {
 void
 lock_init (struct lock *lock) {
 	ASSERT (lock != NULL);
-    lock->holder_priority = ORI_PRI_DEFAULT;
 	lock->holder = NULL;
 	sema_init (&lock->semaphore, 1);
 }
@@ -216,22 +215,32 @@ lock_acquire (struct lock *lock) {
         struct thread *old_holder = NULL;
         int old_p = ORI_PRI_DEFAULT;
 
+        thread_current()->waiting_lock = lock;
+
         old_holder = lock->holder;
         if(old_holder->ori_priority == ORI_PRI_DEFAULT) {
             old_holder->ori_priority = old_holder->priority;
-            old_p = old_holder->priority;
         }
-        if(old_holder->priority < thread_get_priority()) {
-            old_p = old_holder->priority;
-            old_holder->priority = thread_get_priority();
+        old_p = old_holder->priority;
+        old_holder->priority = thread_get_priority();
+        struct thread *cur, *next;
+        cur = old_holder;
+        while(cur->waiting_lock != NULL) {
+            cur = cur->waiting_lock->holder;
+            cur->priority = thread_get_priority();
         }
 
         sema_down (&lock->semaphore);
-        
-        old_holder->priority = old_p;
+
+        if(old_holder->holding_lock_count > 0) {
+            old_holder->priority = old_p;
+        } else {
+            old_holder->priority = old_holder->ori_priority;
+        }
 
         lock->holder = thread_current ();
     }
+    thread_current ()->holding_lock_count += 1;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -264,6 +273,7 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
+    lock->holder->holding_lock_count -= 1;
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }

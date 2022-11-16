@@ -433,8 +433,9 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
     t->ori_priority = ORI_PRI_DEFAULT;
+    t->holding_lock_count = 0;
+    t->waiting_lock = NULL;
 	t->magic = THREAD_MAGIC;
-    list_init(&t->donation_list);
 }
 
 bool
