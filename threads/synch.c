@@ -118,6 +118,22 @@ sema_up (struct semaphore *sema) {
         thread_unblock(t);
     }
     if(t != NULL && thread_get_priority() <= t->priority) {
+        /**
+         * lock_release()로 호출된 sema_up()에서,
+         * thread_get_priority() == t->priority 인 경우에 ready_list에서 현재 쓰레드를 다시 실행시키지 않는 이유 :
+         * 
+         *  thread_unblock()과 thread_yield()에서 ready_list에 쓰레드를 넣는 방법은 모두 push_back 이다.
+         * 
+         *  그러므로, 같은 우선순위를 갖는 두 쓰레드 중, 가장 최근에 Running 상태로 존재했던 현재 쓰레드보다, 
+         * thread_unblock()으로 상태가 Blocked->Ready로 전환된 쓰레드(변수 t)가 먼저 ready_list에 들어가게된다.
+         * 
+         *  그런데 schedule()에서 ready_list에 있는 쓰레드 중 가장 우선순위가 높은 쓰레드를 뽑을 때는,
+         * ready_list의 앞부터 탐색하여 처음으로 나오는 가장 큰 우선순위를 갖는 쓰레드를 꺼낸다.
+         * 
+         *  따라서, 현재 쓰레드보다 먼저 ready_list에 들어간 쓰레드(변수 t)가 먼저 Running 상태로 전환되게 되고,
+         * 이는 "If multiple threads have the same highest priority, thread_yield() should switch among them in "round robin" order."
+         * 라는 KAIST PintOS Assignment의 조건에도 부합한다.
+        */
         thread_yield();
     }
 	intr_set_level (old_level);
@@ -192,7 +208,7 @@ lock_init (struct lock *lock) {
 void
 lock_acquire (struct lock *lock) {
     /* PROJECT 1 - Priority Scheduling */
-    struct thread *old_holder = NULL;
+    
     int64_t old_level;
 
 	ASSERT (lock != NULL);
@@ -200,26 +216,25 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!lock_held_by_current_thread (lock));
 
     old_level = intr_disable();
+    if(!lock_try_acquire(lock)) {
+        struct thread *old_holder = NULL;
 
-    /* PROJECT 1 - Priority Scheduling */
-    if(lock->holder != NULL) {
+        /* PROJECT 1 - Priority Scheduling */
         old_holder = lock->holder;
-        if(lock->holder->ori_priority == 0) {
+        if(lock->holder->ori_priority == ORI_PRI_DEFAULT) {
             lock->holder->ori_priority = lock->holder->priority;
         }
         if(lock->holder->priority < thread_get_priority()) {
             lock->holder->priority = thread_get_priority();
         }
-    }
-    
-    sema_down (&lock->semaphore);
+        
+        sema_down (&lock->semaphore);
 
-    /* PROJECT 1 - Priority Scheduling */
-    if(old_holder != NULL) {
+        /* PROJECT 1 - Priority Scheduling */
         old_holder->priority = old_holder->ori_priority;
-    }
 
-    lock->holder = thread_current ();
+        lock->holder = thread_current ();
+    }
     intr_set_level(old_level);
 }
 
