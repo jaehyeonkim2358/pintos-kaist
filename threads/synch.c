@@ -110,30 +110,13 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-    
-    sema->value++;
 	if (!list_empty (&sema->waiters)) {
         /* PROJECT 1 - Priority Scheduling */
         t = thread_pop_max(&sema->waiters);
         thread_unblock(t);
     }
+    sema->value++;
     if(t != NULL && thread_get_priority() <= t->priority) {
-        /**
-         * lock_release()로 호출된 sema_up()에서,
-         * thread_get_priority() == t->priority 인 경우에 ready_list에서 현재 쓰레드를 다시 실행시키지 않는 이유 :
-         * 
-         *  thread_unblock()과 thread_yield()에서 ready_list에 쓰레드를 넣는 방법은 모두 push_back 이다.
-         * 
-         *  그러므로, 같은 우선순위를 갖는 두 쓰레드 중, 가장 최근에 Running 상태로 존재했던 현재 쓰레드보다, 
-         * thread_unblock()으로 상태가 Blocked->Ready로 전환된 쓰레드(변수 t)가 먼저 ready_list에 들어가게된다.
-         * 
-         *  그런데 schedule()에서 ready_list에 있는 쓰레드 중 가장 우선순위가 높은 쓰레드를 뽑을 때는,
-         * ready_list의 앞부터 탐색하여 처음으로 나오는 가장 큰 우선순위를 갖는 쓰레드를 꺼낸다.
-         * 
-         *  따라서, 현재 쓰레드보다 먼저 ready_list에 들어간 쓰레드(변수 t)가 먼저 Running 상태로 전환되게 되고,
-         * 이는 "If multiple threads have the same highest priority, thread_yield() should switch among them in "round robin" order."
-         * 라는 KAIST PintOS Assignment의 조건에도 부합한다.
-        */
         thread_yield();
     }
 	intr_set_level (old_level);
@@ -192,7 +175,6 @@ sema_test_helper (void *sema_) {
 void
 lock_init (struct lock *lock) {
 	ASSERT (lock != NULL);
-
 	lock->holder = NULL;
 	sema_init (&lock->semaphore, 1);
 }
@@ -207,35 +189,50 @@ lock_init (struct lock *lock) {
    we need to sleep. */
 void
 lock_acquire (struct lock *lock) {
-    /* PROJECT 1 - Priority Scheduling */
-    
-    int64_t old_level;
-
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
-    old_level = intr_disable();
+    /* PROJECT 1 - Priority Scheduling */
     if(!lock_try_acquire(lock)) {
-        struct thread *old_holder = NULL;
+        struct thread *holder = NULL;
+        int old_priority = ORI_PRI_DEFAULT;
 
-        /* PROJECT 1 - Priority Scheduling */
-        old_holder = lock->holder;
-        if(lock->holder->ori_priority == ORI_PRI_DEFAULT) {
-            lock->holder->ori_priority = lock->holder->priority;
+        thread_current()->waiting_lock = lock;              // donator가 자신이 대기하는 lock을 멤버로 저장
+        holder = lock->holder;
+        if(holder->ori_priority == ORI_PRI_DEFAULT) {
+            holder->ori_priority = holder->priority;        // holder   : 양도 전, 자신의 우선순위를 저장 (최초 lock 획득 시)
         }
-        if(lock->holder->priority < thread_get_priority()) {
-            lock->holder->priority = thread_get_priority();
+        old_priority = holder->priority;                    // donator  : 양도 전, holder의 우선순위를 저장
+        holder->priority = thread_get_priority();           // 우선순위 양도 (현재 lock의 holder)
+
+        /* 우선순위 양도 (또 다른 lock을 얻기위해 대기하는 holder들) */
+        struct thread *cur;
+        cur = holder;
+        while(cur->waiting_lock != NULL) {
+            cur = cur->waiting_lock->holder;
+            cur->priority = thread_get_priority();
         }
-        
+
         sema_down (&lock->semaphore);
 
-        /* PROJECT 1 - Priority Scheduling */
-        old_holder->priority = old_holder->ori_priority;
+        /**
+         * 이 주석 아래의 라인이 실행된다는 것은,
+         * donator가 semaphore->waiters의 Blocked thread 중 
+         * 가장 높은 우선순위를 가진 쓰레드였기 때문에,
+         * context switch가 발생하여 unblock되었다는 의미이다. */
+
+        /* 우선순위 복구 */
+        if(holder->holding_lock_count == 0) {           // holder가 hold한 다른 lock이 더 이상 없는 경우
+            holder->priority = holder->ori_priority;
+        } else {                                        // holder가 hold한 다른 lock이 아직 존재하는 경우
+            holder->priority = old_priority;
+        }
 
         lock->holder = thread_current ();
     }
-    intr_set_level(old_level);
+    // lock 획득에 성공. 해당 쓰레드가 hold한 lock의 수 증가
+    thread_current ()->holding_lock_count += 1;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -254,6 +251,7 @@ lock_try_acquire (struct lock *lock) {
 	success = sema_try_down (&lock->semaphore);
 	if (success)
 		lock->holder = thread_current ();
+        // lock->holder_priority = thread_get_priority();
 	return success;
 }
 
@@ -267,7 +265,7 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
-
+    lock->holder->holding_lock_count -= 1;
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }
@@ -350,17 +348,8 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	if (!list_empty (&cond->waiters)) {
-        max_sema = sema_pop_max(&cond->waiters);
-        sema_up (max_sema);
-        // printf(":::::::::::::::::%d\n", list_entry(list_begin(&max_sema->waiters), struct thread, elem)->priority);
-        // sema_up (&list_entry (list_pop_front (&cond->waiters), struct semaphore_elem, elem)->semaphore);
+        sema_up (sema_pop_max(&cond->waiters));
     }
-    // if(!list_empty (&cond->waiters)) {
-    //     if(thread_get_priority() < ) {
-    //         thread_yield();
-    //     }
-    // }
-    
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by

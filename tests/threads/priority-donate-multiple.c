@@ -17,6 +17,7 @@
 
 static thread_func a_thread_func;
 static thread_func b_thread_func;
+static void print_lock_sema_waiters(struct lock *lock);
 
 void
 test_priority_donate_multiple (void) 
@@ -36,10 +37,20 @@ test_priority_donate_multiple (void)
   lock_acquire (&b);
 
   thread_create ("a", PRI_DEFAULT + 1, a_thread_func, &a);
+  
+  /* TEST start */
+//   print_lock_sema_waiters(&a);
+  /* endof TEST */
+  
   msg ("Main thread should have priority %d.  Actual priority: %d.",
        PRI_DEFAULT + 1, thread_get_priority ());
 
   thread_create ("b", PRI_DEFAULT + 2, b_thread_func, &b);
+
+  /* TEST start */
+//   print_lock_sema_waiters(&b);
+  /* endof TEST */
+
   msg ("Main thread should have priority %d.  Actual priority: %d.",
        PRI_DEFAULT + 2, thread_get_priority ());
 
