@@ -86,28 +86,3 @@ b_thread_func (void *lock_)
   lock_release (lock);
   msg ("Thread b finished.");
 }
-
-
-static void
-print_lock_sema_waiters(struct lock *lock) {
-    int64_t old_level;
-    struct list *l;
-    struct list_elem *cur;
-
-    old_level = intr_disable();
-    l = &lock->semaphore.waiters;
-    cur = list_begin(l);
-    printf("lock->holder_priority = %d\n", lock->holder_priority);
-    printf("lock->sema->waiters = ");
-    printf("[");
-    while(cur != list_end(l)) {
-        struct thread *t = list_entry(cur, struct thread, elem);
-        printf("%s", t->name);
-        cur = list_next(cur);
-        if(cur != list_end(l)) {
-            printf(", ");
-        }
-    }
-    printf("]\n");
-    intr_set_level(old_level);
-}
