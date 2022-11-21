@@ -116,8 +116,10 @@ sema_up (struct semaphore *sema) {
         thread_unblock(t);
     }
     sema->value++;
-    if(t != NULL && thread_get_priority() <= t->priority) {
-        thread_yield();
+    if(!intr_context()){
+        if(t != NULL && thread_get_priority() <= t->priority) {
+            thread_yield();
+        }
     }
 	intr_set_level (old_level);
 }

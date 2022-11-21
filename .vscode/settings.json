@@ -2,6 +2,22 @@
     "files.associations": {
         "ctype.h": "c",
         "list.h": "c",
-        "interrupt.h": "c"
+        "interrupt.h": "c",
+        "*.inc": "c",
+        "syscall.h": "c",
+        "stdarg.h": "c",
+        "lib.h": "c",
+        "loader.h": "c",
+        "syscall-nr.h": "c",
+        "unistd.h": "c",
+        "unistd_64.h": "c",
+        "thread.h": "c",
+        "string.h": "c",
+        "file.h": "c",
+        "flags.h": "c",
+        "stdlib.h": "c",
+        "intrinsic.h": "c",
+        "mmu.h": "c",
+        "stdint.h": "c"
     }
 }
