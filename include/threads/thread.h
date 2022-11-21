@@ -30,6 +30,7 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* Highest priority. */
 
 #define ORI_PRI_DEFAULT -1              /* priority가 될 수 없는 값. ori_priority의 초기값으로 사용됨 */
+#define PRE_DEFAULF -99999
 
 /* A kernel thread or user process.
  *
@@ -98,6 +99,7 @@ struct thread {
     int ori_priority;                   /* PROJECT 1 - Priority Scheduling */
     unsigned int holding_lock_count;    /* PROJECT 1 - Priority Scheduling */
     struct lock *waiting_lock;          /* PROJECT 1 - Priority Scheduling */
+    int process_status;                 /* PROJECT 2 - User Programs */
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */

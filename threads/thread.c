@@ -435,6 +435,7 @@ init_thread (struct thread *t, const char *name, int priority) {
     t->ori_priority = ORI_PRI_DEFAULT;
     t->holding_lock_count = 0;
     t->waiting_lock = NULL;
+    t->process_status = PRE_DEFAULF;
 	t->magic = THREAD_MAGIC;
 }
 

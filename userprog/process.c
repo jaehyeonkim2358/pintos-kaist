@@ -18,6 +18,9 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "lib/string.h"
+#include "lib/stdio.h"      // hex_dump() 쓸거야
+
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -49,6 +52,8 @@ process_create_initd (const char *file_name) {
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
+    char *tmp;
+    file_name = strtok_r(file_name, " ", &tmp);
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
@@ -184,6 +189,8 @@ process_exec (void *f_name) {
 	if (!success)
 		return -1;
 
+    // hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+    
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
@@ -204,7 +211,8 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	return -1;
+    thread_set_priority(thread_get_priority()-1);
+    return -1;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -215,7 +223,10 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-
+    if(curr->process_status != PRE_DEFAULF) {
+        printf("%s: exit(%d)\n",curr->name, curr->process_status);
+    }
+    
 	process_cleanup ();
 }
 
@@ -335,6 +346,17 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	process_activate (thread_current ());
 
+    /* PROJECT 2: ARGUMENT PASSING */
+    char *save_ptr, *f_name;
+    char *tmp, *args[128];
+    int argc = 1;
+
+    args[0] = strtok_r(file_name, " ", &save_ptr);
+    while((tmp = strtok_r(NULL, " ", &save_ptr)) != NULL) {
+        args[argc] = tmp;
+        argc++;
+    }
+
 	/* Open executable file. */
 	file = filesys_open (file_name);
 	if (file == NULL) {
@@ -414,8 +436,47 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
-	/* TODO: Your code goes here.
-	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+
+    /* PROJECT 2: ARGUMENT PASSING */
+    uintptr_t stack_pointer = (if_->rsp);
+
+    /* 4단계: 문자열 넣기 */
+    size_t sum = 0;
+    char *address[128];
+
+    for(int i = argc-1; i >= 0; i--) {
+        uintptr_t len = strlen(args[i]) + 1;   // '\0' 포함
+        sum += len;
+        address[i] = (stack_pointer - sum);
+        memcpy((stack_pointer - sum), args[i], len);
+    }
+
+    /* 3단계: word align (8byte) 단위로 주소 맞춰주기 */
+    uintptr_t word_align;
+    int align;
+    //  = (argc % 2 == 0) ? 8 : 16;
+    align = 8;
+    word_align = ((stack_pointer - sum) % align);
+    sum += word_align;
+    memset((stack_pointer - sum), '\0', word_align);
+
+    /* 2단계: 문자열 주소값 넣어주기 */
+    sum += 8;
+    memset((stack_pointer - sum), '\0', 8); // argv[4] '\0'
+    for(int i = argc-1; i >= 0; i--) {
+        sum += 8;
+        memcpy((stack_pointer - sum), (&address[i]), 8);
+    }
+
+    /* 1단계: 가짜 return address 넣어주기 */
+    sum += 8;
+    memset((stack_pointer - sum), '\0', 8);
+
+    /* 0단계: RDI = argc, 
+             RSI = 가짜 return address 이전 주소 */
+    if_->rsp -= sum;            // 저장된 스택 주소를 내려주는 작업을 마지막에 해주었다.
+    if_->R.rdi = argc;
+    if_->R.rsi = if_->rsp + 8;
 
 	success = true;
 
