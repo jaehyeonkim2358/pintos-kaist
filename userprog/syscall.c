@@ -11,6 +11,13 @@
 
 #include <stdlib.h>
 
+#include "userprog/process.h"
+#include "lib/string.h"
+#include "filesys/fsutil.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
+#include "threads/vaddr.h"
+
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
@@ -27,45 +34,20 @@ void syscall_handler (struct intr_frame *);
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
-#define SYSCALL_CNT 25
+#define F_RAX f->R.rax
+#define F_ARG1 f->R.rdi
+#define F_ARG2 f->R.rsi
+#define F_ARG3 f->R.rdx
+#define F_ARG4 f->R.r10
+#define F_ARG5 f->R.r8
+#define F_ARG6 f->R.r9
 
-struct arguments {
-    uint64_t syscall_num;
-    uint64_t arg1, arg2, arg3, arg4, arg5, arg6;
-};
+bool address_check(char *ptr);
 
-struct system_call {
-    uint64_t syscall_num;
-    void (*function) (struct arguments *args);
-};
-
-
-void halt_handler(struct arguments *args);
-void exit_handler(struct arguments *args);
-void fork_handler(struct arguments *args);
-void exec_handler(struct arguments *args);
-void wait_handler(struct arguments *args);
-void create_handler(struct arguments *args);
-void remove_handler(struct arguments *args);
-void open_handler(struct arguments *args);
-void filesize_handler(struct arguments *args);
-void read_handler(struct arguments *args);
-void write_handler(struct arguments *args);
-void seek_handler(struct arguments *args);
-void tell_handler(struct arguments *args);
-void close_handler(struct arguments *args);
-void mmap_handler(struct arguments *args);
-void mnumap_handler(struct arguments *args);
-void chdir_handler(struct arguments *args);
-void mkdir_handler(struct arguments *args);
-void readdir_handler(struct arguments *args);
-void isdir_handler(struct arguments *args);
-void inumber_handler(struct arguments *args);
-void symlink_handler(struct arguments *args);
-void dup2_handler(struct arguments *args);
-void mount_handler(struct arguments *args);
-void umount_handler(struct arguments *args);
-
+int fd_list_get_fd(struct file *_file);
+struct file *fd_list_get_file(int fd);
+int fd_list_insert(struct file *_file);
+void fd_list_remove(int fd);
 
 struct system_call syscall_list[] = {
         {SYS_HALT, halt_handler}, 
@@ -111,120 +93,246 @@ syscall_init (void) {
 
 /* The main system call interface */
 void
-syscall_handler (struct intr_frame *f UNUSED) {
-	// TODO: Your implementation goes here.
-    
-    struct arguments args;
-    args.syscall_num = f->R.rax;
-    args.arg1 = f->R.rdi;
-    args.arg2 = f->R.rsi;
-    args.arg3 = f->R.rdx;
-    args.arg4 = f->R.r10;
-    args.arg5 = f->R.r8;
-    args.arg6 = f->R.r9;
+syscall_handler (struct intr_frame *f) {
+    ASSERT(0 <= F_RAX && F_RAX < SYSCALL_CNT);
 
-    struct system_call call = syscall_list[args.syscall_num];
-    if(call.syscall_num == args.syscall_num) {
-        call.function(&args);
+    struct system_call syscall = syscall_list[F_RAX];
+
+    if(syscall.syscall_num == F_RAX) {
+        syscall.function(f);
+    } else {
+        printf("굉장히 잘못된 그 저기 그거..\n");
     }
 }
 
-
-void halt_handler(struct arguments *args) {
+/* PROJECT 2: SYSTEM CALLS */
+void halt_handler(struct intr_frame *f) {
     power_off();
 }
 
-void exit_handler(struct arguments *args) {
-    int status = args->arg1;
+void exit_handler(struct intr_frame *f) {
+    int status = (int)F_ARG1;
     thread_current()->process_status = status;
+    F_RAX = status;
     thread_exit ();
 }
 
-void fork_handler(struct arguments *args) {
+void fork_handler(struct intr_frame *f) {
+    const char *thread_name = (char *)F_ARG1;
+    tid_t child_tid;
+    child_tid = process_fork (thread_name, f);
+    F_RAX = child_tid;
+}
+
+void exec_handler(struct intr_frame *f) {
 
 }
 
-void exec_handler(struct arguments *args) {
+void wait_handler(struct intr_frame *f) {
+    tid_t pid = F_ARG1;
+    F_RAX = process_wait(pid);
+}
+
+void create_handler(struct intr_frame *f) {
+    F_RAX = false;
+
+    char *file_name = (char *)F_ARG1;
+    off_t initial_size = (off_t)F_ARG2;
+
+    if(file_name == NULL) kern_exit(f, -1);
+    if(!address_check(file_name)) kern_exit(f, -1);
+
+    F_RAX = filesys_create(file_name, initial_size);
+}
+
+void remove_handler(struct intr_frame *f) {
+    F_RAX = false;
+
+    char *file = (char *)F_ARG1;
+    if(file == NULL) return;
+    if(strlen(file) == 0) return;
+
+    F_RAX = filesys_remove(file);
+}
+
+void open_handler(struct intr_frame *f) {
+    F_RAX = -1;
+    char *file_name = (char *)F_ARG1;
+    struct file *o_file = NULL;
+    int fd = -1;
+    
+    if(file_name == NULL) kern_exit(f, -1);
+    if(!address_check(file_name)) kern_exit(f, -1);
+    if((o_file = filesys_open(file_name)) == NULL) return;
+    if((fd = fd_list_insert(o_file)) == -1) kern_exit(f, -1);
+
+    F_RAX = fd;
+}
+
+void filesize_handler(struct intr_frame *f) {
+    int fd = F_ARG1;
+    struct file *file_ = fd_list_get_file(fd);
+    if(file_ == NULL) return;
+    F_RAX = file_length(file_);
+}
+
+void read_handler(struct intr_frame *f) {
+    int fd = F_ARG1;
+    void *buffer = (void *)F_ARG2;
+    unsigned size = F_ARG3;
+
+    if(fd == 1) kern_exit(f, -1);
+    if(!address_check(buffer)) kern_exit(f, -1);
+
+    struct file *file_ = fd_list_get_file(fd);
+
+    if(file_ == NULL) return;
+
+    size = file_read(file_, buffer, size);
+    F_RAX = size;
+}
+
+void write_handler(struct intr_frame *f) {
+    int fd = (int)F_ARG1;
+    char *buffer = (char *)F_ARG2;
+    unsigned size = F_ARG3;
+
+    if(fd <= 0) return;
+
+    if(!address_check(buffer)) kern_exit(f, -1);
+
+    if(fd == 1) {
+        if(size > 0) {
+            if(strlen(buffer) > size) {
+                char new_buf[size];
+                strlcpy(new_buf, buffer, size);
+                printf("%s", new_buf);
+            } else {
+                printf("%s", buffer);
+            }
+        } else {
+            size = 0;
+        }
+    } else {
+        struct file *file_ = fd_list_get_file(fd);
+        if(file_ == NULL) return;
+        size = file_write(file_, buffer, size);
+    }
+    
+    F_RAX = size;
+}
+
+void seek_handler(struct intr_frame *f) {
+    // file_seek();
+}
+
+void tell_handler(struct intr_frame *f) {
+    // file_tell();
+}
+
+void close_handler(struct intr_frame *f) {
+    int fd = F_ARG1;
+    struct file *file_ = fd_list_get_file(fd);
+    if(file_ == NULL) return;
+    file_close(file_);
+    fd_list_remove(fd);
+}
+
+
+/* PROJECT3 ~~~~~ */
+void mmap_handler(struct intr_frame *f) {
 
 }
 
-void wait_handler(struct arguments *args) {
+void mnumap_handler(struct intr_frame *f) {
 
 }
 
-void create_handler(struct arguments *args) {
+void chdir_handler(struct intr_frame *f) {
 
 }
 
-void remove_handler(struct arguments *args) {
+void mkdir_handler(struct intr_frame *f) {
 
 }
 
-void open_handler(struct arguments *args) {
-
-}
-
-void filesize_handler(struct arguments *args) {
-
-}
-
-void read_handler(struct arguments *args) {
-
-}
-
-void write_handler(struct arguments *args) {
-    int fd = args->arg1;
-    char *buffer = args->arg2;
-    unsigned size = args->arg3;
-    printf("%s", buffer);
-}
-
-void seek_handler(struct arguments *args) {
-
-}
-
-void tell_handler(struct arguments *args) {
-
-}
-
-void close_handler(struct arguments *args) {
-
-}
-
-void mmap_handler(struct arguments *args) {
-
-}
-
-void mnumap_handler(struct arguments *args) {
-
-}
-
-void chdir_handler(struct arguments *args) {
-
-}
-
-void mkdir_handler(struct arguments *args) {
-
-}
-void readdir_handler(struct arguments *args) {
+void readdir_handler(struct intr_frame *f) {
     
 }
 
-void isdir_handler(struct arguments *args) {
+void isdir_handler(struct intr_frame *f) {
     
 }
-void inumber_handler(struct arguments *args) {
+
+void inumber_handler(struct intr_frame *f) {
     
 }
-void symlink_handler(struct arguments *args) {
+
+void symlink_handler(struct intr_frame *f) {
     
 }
-void dup2_handler(struct arguments *args) {
+
+void dup2_handler(struct intr_frame *f) {
     
 }
-void mount_handler(struct arguments *args) {
+
+void mount_handler(struct intr_frame *f) {
     
 }
-void umount_handler(struct arguments *args) {
+
+void umount_handler(struct intr_frame *f) {
     
+}
+
+
+/* 여기서 부터는 system call handler 아님 */
+bool
+address_check(char *ptr) {
+    return pml4_get_page(thread_current()->pml4, ptr) != NULL;
+}
+
+
+void 
+kern_exit(struct intr_frame *f, int status) {
+    F_ARG1 = status;
+    exit_handler(f);
+    NOT_REACHED();
+}
+
+
+int
+fd_list_get_fd(struct file *_file) {
+    for(int i = 3; i < FDLIST_LEN; i++) {
+        if((thread_current()->fd_list)[i] == NULL) continue;
+        if((thread_current()->fd_list)[i] == _file) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+
+int
+fd_list_insert(struct file *_file) {
+    for(int i = 3; i < FDLIST_LEN; i++) {
+        if((thread_current()->fd_list)[i] == NULL) {
+            (thread_current()->fd_list)[i] = _file;
+            return i;
+        }
+    }
+    return -1;
+}
+
+
+void
+fd_list_remove(int fd) {
+    if(fd < 3 || fd >= FDLIST_LEN) return;
+    (thread_current()->fd_list)[fd] = NULL;
+}
+
+
+struct file *
+fd_list_get_file(int fd) {
+    if(fd < 3 || fd >= FDLIST_LEN) return NULL;
+    return (thread_current()->fd_list)[fd];
 }
