@@ -18,6 +18,17 @@
         "stdlib.h": "c",
         "intrinsic.h": "c",
         "mmu.h": "c",
-        "stdint.h": "c"
+        "stdint.h": "c",
+        "stdio.h": "c",
+        "palloc.h": "c",
+        "filesys.h": "c",
+        "exception.h": "c",
+        "off_t.h": "c",
+        "malloc.h": "c",
+        "gdt.h": "c",
+        "process.h": "c",
+        "fsutil.h": "c",
+        "init.h": "c",
+        "vaddr.h": "c"
     }
 }

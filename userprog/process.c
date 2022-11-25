@@ -17,6 +17,7 @@
 #include "threads/thread.h"
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h" // malloc() 쓸거야
 #include "intrinsic.h"
 #include "lib/string.h"
 #include "lib/stdio.h"      // hex_dump() 쓸거야
@@ -25,10 +26,18 @@
 #include "vm/vm.h"
 #endif
 
+
+struct parent_proc {
+    struct thread *parent;
+    struct intr_frame *user_frame;
+    struct semaphore sema;
+};
+
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
-static void __do_fork (void *);
+static void __do_fork (void **);
 
 /* General process initializer for initd and other process. */
 static void
@@ -79,10 +88,21 @@ initd (void *f_name) {
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
 tid_t
-process_fork (const char *name, struct intr_frame *if_ UNUSED) {
-	/* Clone current thread to new thread.*/
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+process_fork (const char *name, struct intr_frame *if_) {
+	
+    struct semaphore sema;
+    struct thread *p_thread = thread_current();
+
+    void *arr[3] = {p_thread, if_, &sema};
+    tid_t child_pid;
+    
+    sema_init(&sema, 0);
+
+    /* Clone current thread to new thread.*/
+    child_pid = thread_create (name, PRI_DEFAULT, __do_fork, arr);
+
+    sema_down(&sema);
+	return child_pid;
 }
 
 #ifndef VM
@@ -97,21 +117,28 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+    if(is_kern_pte(pte)) return true;
+    
 
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
+    newpage = palloc_get_page(PAL_USER);        // PAL_USER
 
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
+    memcpy(newpage, parent_page, PGSIZE);
+    writable = is_writable(pte);
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
+        PANIC("fail to insert page");
 		/* 6. TODO: if fail to insert page, do error handling. */
+        return false;
 	}
 	return true;
 }
@@ -122,12 +149,12 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
  *       That is, you are required to pass second argument of process_fork to
  *       this function. */
 static void
-__do_fork (void *aux) {
+__do_fork (void **aux) {
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *) aux;
+	struct thread *parent = (struct thread *)aux[0];
 	struct thread *current = thread_current ();
-	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame *parent_if = (struct intr_frame *)aux[1];         /* Project2: System Calls */
+    struct semaphore *sema = (struct semaphore *)aux[2];
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
@@ -135,8 +162,9 @@ __do_fork (void *aux) {
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
-	if (current->pml4 == NULL)
+	if (current->pml4 == NULL) {
 		goto error;
+    }
 
 	process_activate (current);
 #ifdef VM
@@ -144,8 +172,9 @@ __do_fork (void *aux) {
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
 #else
-	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
+	if (!pml4_for_each (parent->pml4, duplicate_pte, parent)) {
 		goto error;
+    }
 #endif
 
 	/* TODO: Your code goes here.
@@ -153,13 +182,29 @@ __do_fork (void *aux) {
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
+    /* Project2: System Calls */
+    for(int i = 3; i < FDLIST_LEN; i++) {
+        struct file *p_f = (parent->fd_list)[i];
+        if(p_f == NULL) continue;
 
-	process_init ();
+        struct file *dup_f;
+        if((dup_f = file_duplicate(p_f)) == NULL) {
+            goto error;
+        }
+        (current->fd_list)[i] = dup_f;
+    }
+
+    process_init();
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
+        if_.R.rax = 0;
+        current->parent_process = parent;
+        current->parent_process->child_process = thread_current();
+        sema_up(sema);
 		do_iret (&if_);
 error:
+    sema_up(sema);
 	thread_exit ();
 }
 
@@ -189,12 +234,12 @@ process_exec (void *f_name) {
 	if (!success)
 		return -1;
 
-    // hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
-    
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
 }
+
+
 
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -207,23 +252,39 @@ process_exec (void *f_name) {
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) {
+process_wait (tid_t child_tid) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-    thread_set_priority(thread_get_priority()-1);
-    return -1;
+    struct thread *current = thread_current();
+    int return_val = -1;
+
+    if(current->tid == 1) {
+        return_val = -2;
+        while(return_val == -2){
+            enum intr_level old_level;
+            old_level = intr_disable();
+            return_val = destruction_req_contains(child_tid);
+            intr_set_level(old_level);
+        }
+    } else {
+        while(current->child_process != NULL) {
+            continue;
+        }
+    }
+
+    return current->child_exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
-	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
-    if(curr->process_status != PRE_DEFAULF) {
+
+    curr->parent_process->child_process = NULL;
+    curr->parent_process->child_exit_status = curr->process_status;
+
+    if(curr->pml4 != NULL) {
         printf("%s: exit(%d)\n",curr->name, curr->process_status);
     }
     
@@ -348,7 +409,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
     /* PROJECT 2: ARGUMENT PASSING */
     char *save_ptr, *f_name;
-    char *tmp, *args[128];
+    char *tmp, *args[40];
     int argc = 1;
 
     args[0] = strtok_r(file_name, " ", &save_ptr);
@@ -441,42 +502,39 @@ load (const char *file_name, struct intr_frame *if_) {
     uintptr_t stack_pointer = (if_->rsp);
 
     /* 4단계: 문자열 넣기 */
-    size_t sum = 0;
-    char *address[128];
+    char *address[40];
 
     for(int i = argc-1; i >= 0; i--) {
         uintptr_t len = strlen(args[i]) + 1;   // '\0' 포함
-        sum += len;
-        address[i] = (stack_pointer - sum);
-        memcpy((stack_pointer - sum), args[i], len);
+        stack_pointer -= len;
+        address[i] = stack_pointer;
+        memcpy((stack_pointer), args[i], len);
     }
 
     /* 3단계: word align (8byte) 단위로 주소 맞춰주기 */
     uintptr_t word_align;
-    int align;
-    //  = (argc % 2 == 0) ? 8 : 16;
-    align = 8;
-    word_align = ((stack_pointer - sum) % align);
-    sum += word_align;
-    memset((stack_pointer - sum), '\0', word_align);
+    int align = (argc % 2 == 0) ? PTR_SIZE : PTR_SIZE * 2;
+    word_align = ((stack_pointer) % align);
+    stack_pointer -= word_align;
+    memset((stack_pointer), '\0', word_align);
 
     /* 2단계: 문자열 주소값 넣어주기 */
-    sum += 8;
-    memset((stack_pointer - sum), '\0', 8); // argv[4] '\0'
+    stack_pointer -= PTR_SIZE;
+    memset((stack_pointer), '\0', PTR_SIZE); // argv[4] '\0'
     for(int i = argc-1; i >= 0; i--) {
-        sum += 8;
-        memcpy((stack_pointer - sum), (&address[i]), 8);
+        stack_pointer -= PTR_SIZE;
+        memcpy((stack_pointer), (&address[i]), PTR_SIZE);
     }
 
     /* 1단계: 가짜 return address 넣어주기 */
-    sum += 8;
-    memset((stack_pointer - sum), '\0', 8);
+    stack_pointer -= PTR_SIZE;
+    memset((stack_pointer), '\0', PTR_SIZE);
 
     /* 0단계: RDI = argc, 
              RSI = 가짜 return address 이전 주소 */
-    if_->rsp -= sum;            // 저장된 스택 주소를 내려주는 작업을 마지막에 해주었다.
+    if_->rsp = stack_pointer;            // 저장된 스택 주소를 내려주는 작업을 마지막에 해주었다.
     if_->R.rdi = argc;
-    if_->R.rsi = if_->rsp + 8;
+    if_->R.rsi = if_->rsp + PTR_SIZE;
 
 	success = true;
 

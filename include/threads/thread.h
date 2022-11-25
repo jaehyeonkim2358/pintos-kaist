@@ -30,7 +30,9 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* Highest priority. */
 
 #define ORI_PRI_DEFAULT -1              /* priority가 될 수 없는 값. ori_priority의 초기값으로 사용됨 */
-#define PRE_DEFAULF -99999
+#define PRE_DEFAULT -99999
+
+#define FDLIST_LEN 20
 
 /* A kernel thread or user process.
  *
@@ -95,15 +97,22 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-    int64_t wakeup_ticks;               /* PROJECT 1 - Alarm Clock */
-    int ori_priority;                   /* PROJECT 1 - Priority Scheduling */
-    unsigned int holding_lock_count;    /* PROJECT 1 - Priority Scheduling */
-    struct lock *waiting_lock;          /* PROJECT 1 - Priority Scheduling */
-    int process_status;                 /* PROJECT 2 - User Programs */
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
+    int64_t wakeup_ticks;               /* PROJECT 1 - Alarm Clock */
+    int ori_priority;                   /* PROJECT 1 - Priority Scheduling */
+    unsigned int holding_lock_count;    /* PROJECT 1 - Priority Scheduling */
+    struct lock *waiting_lock;          /* PROJECT 1 - Priority Scheduling */
+
+    // struct thread *parent_process;
+    struct thread *parent_process;      /* PROJECT 2 - System Calls */
+    struct thread *child_process;       /* PROJECT 2 - System Calls */
+
+    int child_exit_status;
+    int process_status;                 /* PROJECT 2 - System Calls */
+    struct file *fd_list[20];           /* PROJECT 2 - System Calls */
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -117,6 +126,10 @@ struct thread {
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 };
+
+
+
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -161,4 +174,5 @@ bool thread_compare(const struct list_elem *a, const struct list_elem *b, void *
 struct thread *thread_pop_max(struct list *list);
 struct thread *thread_get_max(struct list *list);
 
+int destruction_req_contains(tid_t tid);
 #endif /* threads/thread.h */
