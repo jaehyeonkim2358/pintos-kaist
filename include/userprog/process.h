@@ -3,6 +3,9 @@
 
 #include "threads/thread.h"
 
+#define PTR_SIZE 8
+#define EXIT_FALSE -2
+
 tid_t process_create_initd (const char *file_name);
 tid_t process_fork (const char *name, struct intr_frame *if_);
 int process_exec (void *f_name);

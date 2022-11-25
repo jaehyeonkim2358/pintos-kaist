@@ -119,9 +119,7 @@ void exit_handler(struct intr_frame *f) {
 
 void fork_handler(struct intr_frame *f) {
     const char *thread_name = (char *)F_ARG1;
-    tid_t child_tid;
-    child_tid = process_fork (thread_name, f);
-    F_RAX = child_tid;
+    F_RAX = process_fork (thread_name, f);
 }
 
 void exec_handler(struct intr_frame *f) {

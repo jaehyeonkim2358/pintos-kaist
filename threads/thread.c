@@ -10,6 +10,7 @@
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 #include "intrinsic.h"
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -431,12 +432,25 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->status = THREAD_BLOCKED;
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
-	t->priority = priority;
+	t->magic = THREAD_MAGIC;
+    t->priority = priority;
+
+    /* PROJECT 1 - Alarm Clock */
+    t->wakeup_ticks = 0;
+
+    /* PROJECT 1 - Priority Scheduling */
     t->ori_priority = ORI_PRI_DEFAULT;
     t->holding_lock_count = 0;
     t->waiting_lock = NULL;
-    t->process_status = PRE_DEFAULF;
-	t->magic = THREAD_MAGIC;
+
+    /* PROJECT 2 - System Calls */
+    t->parent_process = running_thread();
+    if(!is_thread(t->parent_process)) t->parent_process = initial_thread;
+    
+    #ifdef USERPROG
+    t->process_status = 0;
+    for(int i = 0; i < FDLIST_LEN; i++) { t->fd_list[i] = NULL; }
+    #endif
 }
 
 bool
@@ -679,4 +693,25 @@ struct thread *thread_pop_max(struct list *list) {
 
 struct thread *thread_get_max(struct list *list) {
     return list_entry(list_max(list, thread_compare, NULL), struct thread, elem);
+}
+
+
+int
+destruction_req_contains(tid_t tid) {
+    struct list_elem *cur;
+    struct thread *target;
+
+    if(!list_empty(&destruction_req)) {
+        cur = list_begin(&destruction_req);
+
+        while(cur != list_tail(&destruction_req)) {
+            target = list_entry(cur, struct thread, elem);
+            if(target->tid == tid) {
+                return target->process_status;
+            }
+            cur = list_next(cur);
+        }
+    }
+
+    return -2;
 }
