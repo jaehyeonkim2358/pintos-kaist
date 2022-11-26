@@ -113,7 +113,7 @@ struct thread {
     struct file *fd_list[20];           /* PROJECT 2 - System Calls */
     struct file *my_exec_file;          /* PROJECT 2 - System Calls */
 
-    struct semaphore *wait_sema;
+    bool parent_is_main;
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -132,6 +132,7 @@ struct child_list_elem {
     tid_t child_tid;
     enum thread_status child_status;
     int child_exit_status;
+    struct semaphore wait_sema;
     struct list_elem elem;
 };
 

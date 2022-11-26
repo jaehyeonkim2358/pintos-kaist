@@ -220,6 +220,8 @@ process_set_child_list(struct thread *parent, struct thread *child) {
     child_elem->child_status = child->status;
     child_elem->child_tid = child->tid;
     child_elem->child_exit_status = -1;
+    sema_init(&child_elem->wait_sema, 0);
+    
     list_push_back(&parent->child_list, &child_elem->elem);
 }
 
@@ -274,13 +276,10 @@ process_wait (tid_t child_tid) {
 
     /* main thread의 경우 */
     if(current->tid == 1) {
-        return_val = EXIT_FALSE;
-        while(return_val == EXIT_FALSE){
-            enum intr_level old_level;
-            old_level = intr_disable();
-            return_val = destruction_req_contains(child_tid);
-            intr_set_level(old_level);
+        while(!current->parent_is_main) {
+            continue;
         }
+        return 0;
     } else {
         struct list *child_list = &current->child_list;
         struct list_elem *cur;
@@ -291,7 +290,7 @@ process_wait (tid_t child_tid) {
             target = NULL;
 
             /* child_list에서 tid가 child_tid랑 같은 자식을 찾는다. */
-            while(cur != list_tail(&child_list)) {
+            while(cur != list_tail(child_list)) {
                 target = list_entry(cur, struct child_list_elem, elem);
                 if(target->child_tid == child_tid) {
                     break;
@@ -301,28 +300,17 @@ process_wait (tid_t child_tid) {
 
             /* 자식을 찾은 뒤, 필요한 정보를 꺼내고, child_list에서 제거하고, child_list_elem을 free한다. */
             if(target != NULL) {
-                // current->wait_sema = (struct semaphore *)malloc(sizeof(struct semaphore));
-                // sema_init(current->wait_sema, 0);
-                if(target->child_status != THREAD_DYING) {
-                    
-                    // printf("!!!!!!!!!! current->wait_sema = %p\n", current->wait_sema);
-                    // sema_down(current->wait_sema);
-                    do{
-                        // sema_down(current->wait_sema);
-                        continue;
-                    }while(target->child_status != THREAD_DYING);
-                    
+                while(target->child_status != THREAD_DYING){
+                    sema_down(&target->wait_sema);
                 }
-                // free(current->wait_sema);
-                // current->wait_sema = NULL;
-
                 return_val = target->child_exit_status;
                 list_remove(cur);
                 free(target);
+                return return_val;
             }
         }
     }
-    return return_val;
+    return -1;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -330,7 +318,15 @@ void
 process_exit (void) {
 	struct thread *curr = thread_current ();
     struct thread *parent = curr->parent_process;
-    
+    int curr_exit_status = curr->process_status;
+
+    if(curr->pml4 != NULL) {
+        printf("%s: exit(%d)\n",curr->name, curr_exit_status);
+    }
+
+    if(parent->tid == 1) {
+        parent->parent_is_main = true;
+    }
 
     /* 실행하던 파일 닫기 */
     if(curr->my_exec_file != NULL) {
@@ -339,15 +335,12 @@ process_exit (void) {
     }
 
     /* 부모 쓰레드의 child_list에서 자기 자신을 찾고, 상태 변경하기 */
-    int curr_exit_status = curr->process_status;
-    struct semaphore *p_sema = parent->wait_sema;
     struct list *p_child_list = &parent->child_list;
     struct list_elem *cur;
-    struct child_list_elem *target;
+    struct child_list_elem *target = NULL;
 
     if(!list_empty(p_child_list)) {
         cur = list_begin(p_child_list);
-        target = NULL;
 
         while(cur != list_tail(p_child_list)) {
             target = list_entry(cur, struct child_list_elem, elem);
@@ -360,22 +353,14 @@ process_exit (void) {
         if(target != NULL) {
             target->child_status = THREAD_DYING;
             target->child_exit_status = curr_exit_status;
+            sema_up(&target->wait_sema);
         } else {
             // printf("내가 부모의 child_list에 없어요..\n");
         }
     }
     
-    if(curr->pml4 != NULL) {
-        printf("%s: exit(%d)\n",curr->name, curr_exit_status);
-    }
     
 
-    // if(parent->wait_sema){
-    // }
-    // printf("!!!!!!!!!! parent->wait_sema = %p\n", parent->wait_sema);
-    // sema_up(parent->wait_sema);
-    
-    
 	process_cleanup ();
 }
 
