@@ -17,6 +17,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "threads/vaddr.h"
+#include "threads/palloc.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -123,7 +124,13 @@ void fork_handler(struct intr_frame *f) {
 }
 
 void exec_handler(struct intr_frame *f) {
+    char *file_name = (char *)F_ARG1;
+    char *new_fname = palloc_get_page (0);
 
+    if(!address_check(file_name)) kern_exit(f, -1);
+
+    strlcpy(new_fname, file_name, PGSIZE);
+    F_RAX = process_exec(new_fname);
 }
 
 void wait_handler(struct intr_frame *f) {
@@ -221,7 +228,12 @@ void write_handler(struct intr_frame *f) {
 }
 
 void seek_handler(struct intr_frame *f) {
-    // file_seek();
+    int fd = (int)F_ARG1;
+    unsigned position = (unsigned)F_ARG2;
+    struct file *getfile = fd_list_get_file(fd);
+    if(getfile == NULL) kern_exit(f, -1);
+
+    file_seek(getfile, position);
 }
 
 void tell_handler(struct intr_frame *f) {

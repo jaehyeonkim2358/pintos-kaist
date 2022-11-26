@@ -446,7 +446,8 @@ init_thread (struct thread *t, const char *name, int priority) {
     /* PROJECT 2 - System Calls */
     t->parent_process = running_thread();
     if(!is_thread(t->parent_process)) t->parent_process = initial_thread;
-    
+    t->child_exit_status = -1;
+    t->my_exec_file = NULL;
     #ifdef USERPROG
     t->process_status = 0;
     for(int i = 0; i < FDLIST_LEN; i++) { t->fd_list[i] = NULL; }

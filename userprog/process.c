@@ -260,8 +260,8 @@ process_wait (tid_t child_tid) {
     int return_val = -1;
 
     if(current->tid == 1) {
-        return_val = -2;
-        while(return_val == -2){
+        return_val = EXIT_FALSE;
+        while(return_val == EXIT_FALSE){
             enum intr_level old_level;
             old_level = intr_disable();
             return_val = destruction_req_contains(child_tid);
@@ -272,14 +272,20 @@ process_wait (tid_t child_tid) {
             continue;
         }
     }
-
-    return current->child_exit_status;
+    return_val = current->child_exit_status;
+    current->child_exit_status = -1;
+    return return_val;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
+
+    if(curr->my_exec_file != NULL) {
+        file_close(curr->my_exec_file);
+        curr->my_exec_file = NULL;
+    }
 
     curr->parent_process->child_process = NULL;
     curr->parent_process->child_exit_status = curr->process_status;
@@ -401,6 +407,13 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
+    if(t->my_exec_file != NULL) {
+        file_close(t->my_exec_file);
+        t->my_exec_file = NULL;
+    }
+    
+    
+
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
@@ -419,6 +432,7 @@ load (const char *file_name, struct intr_frame *if_) {
     }
 
 	/* Open executable file. */
+    
 	file = filesys_open (file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
@@ -490,6 +504,9 @@ load (const char *file_name, struct intr_frame *if_) {
 		}
 	}
 
+    file_deny_write(file);
+    t->my_exec_file = file;
+
 	/* Set up stack. */
 	if (!setup_stack (if_))
 		goto done;
@@ -501,7 +518,8 @@ load (const char *file_name, struct intr_frame *if_) {
     /* PROJECT 2: ARGUMENT PASSING */
     uintptr_t stack_pointer = (if_->rsp);
 
-    /* 4단계: 문자열 넣기 */
+    /* 4단계: 문자열 넣
+    기 */
     char *address[40];
 
     for(int i = argc-1; i >= 0; i--) {
@@ -540,7 +558,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	// file_close (file);
 	return success;
 }
 
