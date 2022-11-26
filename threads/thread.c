@@ -449,10 +449,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 
     t->my_exec_file = NULL;
     list_init(&t->child_list);
+    t->parent_is_main = false;
 
-    t->wait_sema = NULL;
-    // sema_init(&t->wait_sema, 0);
-    
     #ifdef USERPROG
     t->process_status = 0;
     for(int i = 0; i < FDLIST_LEN; i++) { t->fd_list[i] = NULL; }
@@ -693,7 +691,7 @@ struct semaphore *get_sleep_list(void) {
 struct thread *thread_pop_max(struct list *list) {
     struct list_elem *max_elem;
     max_elem = list_max(list, thread_compare, NULL);
-    list_remove(max_elem);
+    list_remove(max_elem);    
     return list_entry(max_elem, struct thread, elem);
 }
 

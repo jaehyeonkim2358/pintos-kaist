@@ -111,7 +111,6 @@ sema_up (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	if (!list_empty (&sema->waiters)) {
-        /* PROJECT 1 - Priority Scheduling */
         t = thread_pop_max(&sema->waiters);
         thread_unblock(t);
     }
