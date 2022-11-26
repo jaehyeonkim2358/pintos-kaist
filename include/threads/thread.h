@@ -113,6 +113,7 @@ struct thread {
     int child_exit_status;
     int process_status;                 /* PROJECT 2 - System Calls */
     struct file *fd_list[20];           /* PROJECT 2 - System Calls */
+    struct file *my_exec_file;
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
