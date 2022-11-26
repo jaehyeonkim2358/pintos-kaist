@@ -125,10 +125,11 @@ void fork_handler(struct intr_frame *f) {
 
 void exec_handler(struct intr_frame *f) {
     char *file_name = (char *)F_ARG1;
-    char *new_fname = palloc_get_page (0);
+    char *new_fname;
 
     if(!address_check(file_name)) kern_exit(f, -1);
 
+    new_fname = palloc_get_page (0);
     strlcpy(new_fname, file_name, PGSIZE);
     F_RAX = process_exec(new_fname);
 }

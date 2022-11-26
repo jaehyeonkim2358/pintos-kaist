@@ -29,6 +29,8 @@
         "process.h": "c",
         "fsutil.h": "c",
         "init.h": "c",
-        "vaddr.h": "c"
+        "vaddr.h": "c",
+        "directory.h": "c",
+        "syn-read.h": "c"
     }
 }
