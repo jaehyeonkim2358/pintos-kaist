@@ -446,8 +446,13 @@ init_thread (struct thread *t, const char *name, int priority) {
     /* PROJECT 2 - System Calls */
     t->parent_process = running_thread();
     if(!is_thread(t->parent_process)) t->parent_process = initial_thread;
-    t->child_exit_status = -1;
+
     t->my_exec_file = NULL;
+    list_init(&t->child_list);
+
+    t->wait_sema = NULL;
+    // sema_init(&t->wait_sema, 0);
+    
     #ifdef USERPROG
     t->process_status = 0;
     for(int i = 0; i < FDLIST_LEN; i++) { t->fd_list[i] = NULL; }

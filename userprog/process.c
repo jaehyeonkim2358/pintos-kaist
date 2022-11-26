@@ -39,6 +39,11 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void **);
 
+
+
+static void process_set_child_list(struct thread *parent, struct thread *child);
+
+
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -89,7 +94,6 @@ initd (void *f_name) {
  * TID_ERROR if the thread cannot be created. */
 tid_t
 process_fork (const char *name, struct intr_frame *if_) {
-	
     struct semaphore sema;
     struct thread *p_thread = thread_current();
 
@@ -101,7 +105,9 @@ process_fork (const char *name, struct intr_frame *if_) {
     /* Clone current thread to new thread.*/
     child_pid = thread_create (name, PRI_DEFAULT, __do_fork, arr);
 
-    sema_down(&sema);
+    if(child_pid != TID_ERROR) {
+        sema_down(&sema);
+    }
 	return child_pid;
 }
 
@@ -200,13 +206,23 @@ __do_fork (void **aux) {
 	if (succ)
         if_.R.rax = 0;
         current->parent_process = parent;
-        current->parent_process->child_process = thread_current();
+        process_set_child_list(parent, current);
         sema_up(sema);
 		do_iret (&if_);
 error:
     sema_up(sema);
 	thread_exit ();
 }
+
+static void
+process_set_child_list(struct thread *parent, struct thread *child) {
+    struct child_list_elem *child_elem = malloc(sizeof(struct child_list_elem));
+    child_elem->child_status = child->status;
+    child_elem->child_tid = child->tid;
+    child_elem->child_exit_status = -1;
+    list_push_back(&parent->child_list, &child_elem->elem);
+}
+
 
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
@@ -253,12 +269,10 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid) {
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
     struct thread *current = thread_current();
     int return_val = -1;
 
+    /* main thread의 경우 */
     if(current->tid == 1) {
         return_val = EXIT_FALSE;
         while(return_val == EXIT_FALSE){
@@ -268,12 +282,46 @@ process_wait (tid_t child_tid) {
             intr_set_level(old_level);
         }
     } else {
-        while(current->child_process != NULL) {
-            continue;
+        struct list *child_list = &current->child_list;
+        struct list_elem *cur;
+        struct child_list_elem *target;
+
+        if(!list_empty(child_list)) {
+            cur = list_begin(child_list);
+            target = NULL;
+
+            /* child_list에서 tid가 child_tid랑 같은 자식을 찾는다. */
+            while(cur != list_tail(&child_list)) {
+                target = list_entry(cur, struct child_list_elem, elem);
+                if(target->child_tid == child_tid) {
+                    break;
+                }
+                cur = list_next(cur);
+            }
+
+            /* 자식을 찾은 뒤, 필요한 정보를 꺼내고, child_list에서 제거하고, child_list_elem을 free한다. */
+            if(target != NULL) {
+                // current->wait_sema = (struct semaphore *)malloc(sizeof(struct semaphore));
+                // sema_init(current->wait_sema, 0);
+                if(target->child_status != THREAD_DYING) {
+                    
+                    // printf("!!!!!!!!!! current->wait_sema = %p\n", current->wait_sema);
+                    // sema_down(current->wait_sema);
+                    do{
+                        // sema_down(current->wait_sema);
+                        continue;
+                    }while(target->child_status != THREAD_DYING);
+                    
+                }
+                // free(current->wait_sema);
+                // current->wait_sema = NULL;
+
+                return_val = target->child_exit_status;
+                list_remove(cur);
+                free(target);
+            }
         }
     }
-    return_val = current->child_exit_status;
-    current->child_exit_status = -1;
     return return_val;
 }
 
@@ -281,18 +329,52 @@ process_wait (tid_t child_tid) {
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
+    struct thread *parent = curr->parent_process;
+    
 
+    /* 실행하던 파일 닫기 */
     if(curr->my_exec_file != NULL) {
         file_close(curr->my_exec_file);
         curr->my_exec_file = NULL;
     }
 
-    curr->parent_process->child_process = NULL;
-    curr->parent_process->child_exit_status = curr->process_status;
+    /* 부모 쓰레드의 child_list에서 자기 자신을 찾고, 상태 변경하기 */
+    int curr_exit_status = curr->process_status;
+    struct semaphore *p_sema = parent->wait_sema;
+    struct list *p_child_list = &parent->child_list;
+    struct list_elem *cur;
+    struct child_list_elem *target;
 
-    if(curr->pml4 != NULL) {
-        printf("%s: exit(%d)\n",curr->name, curr->process_status);
+    if(!list_empty(p_child_list)) {
+        cur = list_begin(p_child_list);
+        target = NULL;
+
+        while(cur != list_tail(p_child_list)) {
+            target = list_entry(cur, struct child_list_elem, elem);
+            if(target->child_tid == curr->tid) {
+                break;
+            }
+            cur = list_next(cur);
+        }
+
+        if(target != NULL) {
+            target->child_status = THREAD_DYING;
+            target->child_exit_status = curr_exit_status;
+        } else {
+            // printf("내가 부모의 child_list에 없어요..\n");
+        }
     }
+    
+    if(curr->pml4 != NULL) {
+        printf("%s: exit(%d)\n",curr->name, curr_exit_status);
+    }
+    
+
+    // if(parent->wait_sema){
+    // }
+    // printf("!!!!!!!!!! parent->wait_sema = %p\n", parent->wait_sema);
+    // sema_up(parent->wait_sema);
+    
     
 	process_cleanup ();
 }
@@ -411,8 +493,6 @@ load (const char *file_name, struct intr_frame *if_) {
         file_close(t->my_exec_file);
         t->my_exec_file = NULL;
     }
-    
-    
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -432,7 +512,6 @@ load (const char *file_name, struct intr_frame *if_) {
     }
 
 	/* Open executable file. */
-    
 	file = filesys_open (file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
@@ -518,8 +597,7 @@ load (const char *file_name, struct intr_frame *if_) {
     /* PROJECT 2: ARGUMENT PASSING */
     uintptr_t stack_pointer = (if_->rsp);
 
-    /* 4단계: 문자열 넣
-    기 */
+    /* 4단계: 문자열 넣기 */
     char *address[40];
 
     for(int i = argc-1; i >= 0; i--) {
@@ -558,7 +636,6 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	// file_close (file);
 	return success;
 }
 

@@ -106,14 +106,14 @@ struct thread {
     unsigned int holding_lock_count;    /* PROJECT 1 - Priority Scheduling */
     struct lock *waiting_lock;          /* PROJECT 1 - Priority Scheduling */
 
-    // struct thread *parent_process;
     struct thread *parent_process;      /* PROJECT 2 - System Calls */
-    struct thread *child_process;       /* PROJECT 2 - System Calls */
+    struct list child_list;             /* PROJECT 2 - System Calls */
 
-    int child_exit_status;
     int process_status;                 /* PROJECT 2 - System Calls */
     struct file *fd_list[20];           /* PROJECT 2 - System Calls */
-    struct file *my_exec_file;
+    struct file *my_exec_file;          /* PROJECT 2 - System Calls */
+
+    struct semaphore *wait_sema;
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -128,7 +128,12 @@ struct thread {
 	unsigned magic;                     /* Detects stack overflow. */
 };
 
-
+struct child_list_elem {
+    tid_t child_tid;
+    enum thread_status child_status;
+    int child_exit_status;
+    struct list_elem elem;
+};
 
 
 
@@ -175,5 +180,6 @@ bool thread_compare(const struct list_elem *a, const struct list_elem *b, void *
 struct thread *thread_pop_max(struct list *list);
 struct thread *thread_get_max(struct list *list);
 
+/* PROJECT 2 - System Calls */
 int destruction_req_contains(tid_t tid);
 #endif /* threads/thread.h */
