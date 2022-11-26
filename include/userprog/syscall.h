@@ -6,6 +6,12 @@
 void syscall_init (void);
 
 
+
+struct lock file_lock;
+// struct lock file_write_lock;
+bool use_file_read_lock;
+int file_read_lock_depth;
+
 /* PROJECT 2: SYSTEM CALLS */
 #define SYSCALL_CNT 25
 
@@ -43,5 +49,7 @@ void mount_handler(struct intr_frame *f);
 void umount_handler(struct intr_frame *f);
 
 void kern_exit(struct intr_frame *f, int status);
+void acquire_file_lock(struct lock *file_lock);
+void release_file_lock(struct lock *file_lock);
 
 #endif /* userprog/syscall.h */

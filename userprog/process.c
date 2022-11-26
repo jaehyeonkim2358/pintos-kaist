@@ -1,4 +1,5 @@
 #include "userprog/process.h"
+#include "userprog/syscall.h"
 #include <debug.h>
 #include <inttypes.h>
 #include <round.h>
@@ -40,8 +41,7 @@ static void initd (void *f_name);
 static void __do_fork (void **);
 
 
-
-static void process_set_child_list(struct thread *parent, struct thread *child);
+struct child_list_elem * process_set_child_list(struct thread *parent, struct thread *child);
 
 
 /* General process initializer for initd and other process. */
@@ -71,8 +71,9 @@ process_create_initd (const char *file_name) {
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
-	if (tid == TID_ERROR)
-		palloc_free_page (fn_copy);
+	if (tid == TID_ERROR) {
+        palloc_free_page (fn_copy);
+    }
 	return tid;
 }
 
@@ -85,8 +86,9 @@ initd (void *f_name) {
 
 	process_init ();
 
-	if (process_exec (f_name) < 0)
-		PANIC("Fail to launch initd\n");
+	if (process_exec (f_name) < 0) {
+        PANIC("Fail to launch initd\n");
+    }
 	NOT_REACHED ();
 }
 
@@ -142,7 +144,7 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
-        PANIC("fail to insert page");
+        // PANIC("fail to insert page");
 		/* 6. TODO: if fail to insert page, do error handling. */
         return false;
 	}
@@ -203,18 +205,19 @@ __do_fork (void **aux) {
     process_init();
 
 	/* Finally, switch to the newly created process. */
+    current->parent_process = parent;
+    current->my_info = process_set_child_list(parent, current);
+    if_.R.rax = 0;
+    sema_up(sema);
+
 	if (succ)
-        if_.R.rax = 0;
-        current->parent_process = parent;
-        process_set_child_list(parent, current);
-        sema_up(sema);
 		do_iret (&if_);
 error:
     sema_up(sema);
 	thread_exit ();
 }
 
-static void
+struct child_list_elem *
 process_set_child_list(struct thread *parent, struct thread *child) {
     struct child_list_elem *child_elem = malloc(sizeof(struct child_list_elem));
     child_elem->child_status = child->status;
@@ -223,6 +226,7 @@ process_set_child_list(struct thread *parent, struct thread *child) {
     sema_init(&child_elem->wait_sema, 0);
     
     list_push_back(&parent->child_list, &child_elem->elem);
+    return child_elem;
 }
 
 
@@ -245,12 +249,15 @@ process_exec (void *f_name) {
 	process_cleanup ();
 
 	/* And then load the binary */
+    acquire_file_lock(&file_lock);
 	success = load (file_name, &_if);
+    release_file_lock(&file_lock);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
-	if (!success)
+	if (!success) {
 		return -1;
+    }
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -272,7 +279,7 @@ process_exec (void *f_name) {
 int
 process_wait (tid_t child_tid) {
     struct thread *current = thread_current();
-    int return_val = -1;
+    int return_val = 0;
 
     /* main thread의 경우 */
     if(current->tid == 1) {
@@ -292,21 +299,18 @@ process_wait (tid_t child_tid) {
             /* child_list에서 tid가 child_tid랑 같은 자식을 찾는다. */
             while(cur != list_tail(child_list)) {
                 target = list_entry(cur, struct child_list_elem, elem);
+
+                /* 자식을 찾은 뒤, 필요한 정보를 꺼내고, child_list에서 제거하고, child_list_elem을 free한다. */
                 if(target->child_tid == child_tid) {
-                    break;
+                    while(target->child_status != THREAD_DYING) {
+                        sema_down(&target->wait_sema);
+                    }
+                    return_val = target->child_exit_status;
+                    list_remove(cur);
+                    free(target);
+                    return return_val;
                 }
                 cur = list_next(cur);
-            }
-
-            /* 자식을 찾은 뒤, 필요한 정보를 꺼내고, child_list에서 제거하고, child_list_elem을 free한다. */
-            if(target != NULL) {
-                while(target->child_status != THREAD_DYING){
-                    sema_down(&target->wait_sema);
-                }
-                return_val = target->child_exit_status;
-                list_remove(cur);
-                free(target);
-                return return_val;
             }
         }
     }
@@ -326,40 +330,43 @@ process_exit (void) {
 
     if(parent->tid == 1) {
         parent->parent_is_main = true;
+    } else {
+        if(curr->my_info != NULL) {
+            curr->my_info->child_status = THREAD_DYING;
+            curr->my_info->child_exit_status = curr_exit_status;
+            sema_up(&curr->my_info->wait_sema);
+        }
     }
 
+    acquire_file_lock(&file_lock);
     /* 실행하던 파일 닫기 */
     if(curr->my_exec_file != NULL) {
         file_close(curr->my_exec_file);
         curr->my_exec_file = NULL;
     }
 
-    /* 부모 쓰레드의 child_list에서 자기 자신을 찾고, 상태 변경하기 */
-    struct list *p_child_list = &parent->child_list;
-    struct list_elem *cur;
-    struct child_list_elem *target = NULL;
-
-    if(!list_empty(p_child_list)) {
-        cur = list_begin(p_child_list);
-
-        while(cur != list_tail(p_child_list)) {
-            target = list_entry(cur, struct child_list_elem, elem);
-            if(target->child_tid == curr->tid) {
-                break;
-            }
-            cur = list_next(cur);
-        }
-
-        if(target != NULL) {
-            target->child_status = THREAD_DYING;
-            target->child_exit_status = curr_exit_status;
-            sema_up(&target->wait_sema);
-        } else {
-            // printf("내가 부모의 child_list에 없어요..\n");
+    /* fd table의 파일 닫기 */
+    for(int i = 0; i < FDLIST_LEN; i++) {
+        if(curr->fd_list[i] != NULL) {
+            file_close(curr->fd_list[i]);
         }
     }
-    
-    
+    release_file_lock(&file_lock);
+
+    enum intr_level old_level;
+    old_level = intr_disable();
+
+    struct list_elem *cursor = list_begin(&curr->child_list);
+    while(cursor != list_tail(&curr->child_list)) {
+        struct child_list_elem *tgt = list_entry(cursor, struct child_list_elem, elem);
+        if(tgt->child_status != THREAD_DYING) {
+            tgt = NULL;
+        }
+        free(tgt);
+        cursor = list_next(cursor);
+    }
+
+    intr_set_level(old_level);
 
 	process_cleanup ();
 }

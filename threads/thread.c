@@ -462,6 +462,11 @@ thread_compare(const struct list_elem *a, const struct list_elem *b, void *aux U
     struct thread *at, *bt;
     at = list_entry(a, struct thread, elem);
     bt = list_entry(b, struct thread, elem);
+    return thread_compare_2(at, bt);
+}
+
+bool
+thread_compare_2(struct thread *at, struct thread *bt) {
     if(at->priority == bt->priority) {
         if(at->ori_priority == bt->ori_priority) {
             return at->priority < bt->priority;

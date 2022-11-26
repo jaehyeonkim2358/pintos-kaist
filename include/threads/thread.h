@@ -91,6 +91,14 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
+struct child_list_elem {
+    tid_t child_tid;
+    enum thread_status child_status;
+    int child_exit_status;
+    struct semaphore wait_sema;
+    struct list_elem elem;
+};
+
 struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
@@ -101,19 +109,20 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
-    int64_t wakeup_ticks;               /* PROJECT 1 - Alarm Clock */
+    bool parent_is_main;                /* PROJECT 2 - System Calls */
     int ori_priority;                   /* PROJECT 1 - Priority Scheduling */
+    int process_status;                 /* PROJECT 2 - System Calls */
     unsigned int holding_lock_count;    /* PROJECT 1 - Priority Scheduling */
+    int64_t wakeup_ticks;               /* PROJECT 1 - Alarm Clock */
+
     struct lock *waiting_lock;          /* PROJECT 1 - Priority Scheduling */
 
     struct thread *parent_process;      /* PROJECT 2 - System Calls */
     struct list child_list;             /* PROJECT 2 - System Calls */
 
-    int process_status;                 /* PROJECT 2 - System Calls */
-    struct file *fd_list[20];           /* PROJECT 2 - System Calls */
+    struct file *fd_list[FDLIST_LEN];   /* PROJECT 2 - System Calls */
     struct file *my_exec_file;          /* PROJECT 2 - System Calls */
-
-    bool parent_is_main;
+    struct child_list_elem *my_info;
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -128,13 +137,7 @@ struct thread {
 	unsigned magic;                     /* Detects stack overflow. */
 };
 
-struct child_list_elem {
-    tid_t child_tid;
-    enum thread_status child_status;
-    int child_exit_status;
-    struct semaphore wait_sema;
-    struct list_elem elem;
-};
+
 
 
 
@@ -178,6 +181,7 @@ struct semaphore *get_sleep_list(void);
 
 /* PROJECT 1 - Priority Scheduling */
 bool thread_compare(const struct list_elem *a, const struct list_elem *b, void *aux);
+bool thread_compare_2(struct thread *at, struct thread *bt);
 struct thread *thread_pop_max(struct list *list);
 struct thread *thread_get_max(struct list *list);
 
