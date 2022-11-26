@@ -22,6 +22,8 @@
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
+
+
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -85,6 +87,8 @@ syscall_init (void) {
 			((uint64_t)SEL_KCSEG) << 32);
 	write_msr(MSR_LSTAR, (uint64_t) syscall_entry);
 
+    lock_init(&file_lock);
+    use_file_read_lock = true;
 	/* The interrupt service rountine should not serve any interrupts
 	 * until the syscall_entry swaps the userland stack to the kernel
 	 * mode stack. Therefore, we masked the FLAG_FL. */
@@ -147,8 +151,10 @@ void create_handler(struct intr_frame *f) {
 
     if(file_name == NULL) kern_exit(f, -1);
     if(!address_check(file_name)) kern_exit(f, -1);
-
+    
+    acquire_file_lock(&file_lock);
     F_RAX = filesys_create(file_name, initial_size);
+    release_file_lock(&file_lock);
 }
 
 void remove_handler(struct intr_frame *f) {
@@ -158,7 +164,9 @@ void remove_handler(struct intr_frame *f) {
     if(file == NULL) return;
     if(strlen(file) == 0) return;
 
+    acquire_file_lock(&file_lock);
     F_RAX = filesys_remove(file);
+    release_file_lock(&file_lock);
 }
 
 void open_handler(struct intr_frame *f) {
@@ -169,7 +177,11 @@ void open_handler(struct intr_frame *f) {
     
     if(file_name == NULL) kern_exit(f, -1);
     if(!address_check(file_name)) kern_exit(f, -1);
+
+    acquire_file_lock(&file_lock);
     if((o_file = filesys_open(file_name)) == NULL) return;
+    release_file_lock(&file_lock);
+
     if((fd = fd_list_insert(o_file)) == -1) kern_exit(f, -1);
 
     F_RAX = fd;
@@ -179,7 +191,10 @@ void filesize_handler(struct intr_frame *f) {
     int fd = F_ARG1;
     struct file *file_ = fd_list_get_file(fd);
     if(file_ == NULL) return;
+
+    acquire_file_lock(&file_lock);
     F_RAX = file_length(file_);
+    release_file_lock(&file_lock);
 }
 
 void read_handler(struct intr_frame *f) {
@@ -187,14 +202,17 @@ void read_handler(struct intr_frame *f) {
     void *buffer = (void *)F_ARG2;
     unsigned size = F_ARG3;
 
+    if(fd < 0 || FDLIST_LEN <= fd) kern_exit(f, -1);
     if(fd == 1) kern_exit(f, -1);
     if(!address_check(buffer)) kern_exit(f, -1);
 
     struct file *file_ = fd_list_get_file(fd);
-
     if(file_ == NULL) return;
 
+    acquire_file_lock(&file_lock);
     size = file_read(file_, buffer, size);
+    release_file_lock(&file_lock);
+    
     F_RAX = size;
 }
 
@@ -222,7 +240,10 @@ void write_handler(struct intr_frame *f) {
     } else {
         struct file *file_ = fd_list_get_file(fd);
         if(file_ == NULL) return;
+        
+        acquire_file_lock(&file_lock);
         size = file_write(file_, buffer, size);
+        release_file_lock(&file_lock);
     }
     
     F_RAX = size;
@@ -234,7 +255,9 @@ void seek_handler(struct intr_frame *f) {
     struct file *getfile = fd_list_get_file(fd);
     if(getfile == NULL) kern_exit(f, -1);
 
+    acquire_file_lock(&file_lock);
     file_seek(getfile, position);
+    release_file_lock(&file_lock);
 }
 
 void tell_handler(struct intr_frame *f) {
@@ -245,7 +268,11 @@ void close_handler(struct intr_frame *f) {
     int fd = F_ARG1;
     struct file *file_ = fd_list_get_file(fd);
     if(file_ == NULL) return;
+
+    acquire_file_lock(&file_lock);
     file_close(file_);
+    release_file_lock(&file_lock);
+
     fd_list_remove(fd);
 }
 
@@ -346,4 +373,25 @@ struct file *
 fd_list_get_file(int fd) {
     if(fd < 3 || fd >= FDLIST_LEN) return NULL;
     return (thread_current()->fd_list)[fd];
+}
+
+
+void
+acquire_file_lock (struct lock *flie_lock) {
+	if (!intr_context () && use_file_read_lock) {
+		if (lock_held_by_current_thread (flie_lock)) 
+			file_read_lock_depth++; 
+		else
+			lock_acquire (flie_lock); 
+	}
+}
+
+void
+release_file_lock (struct lock *flie_lock) {
+	if (!intr_context () && use_file_read_lock) {
+		if (file_read_lock_depth > 0)
+			file_read_lock_depth--;
+		else
+			lock_release (flie_lock); 
+	}
 }
