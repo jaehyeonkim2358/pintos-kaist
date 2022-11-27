@@ -32,6 +32,7 @@ main (int argc, const char *argv[])
 
   CHECK ((fd = open (file_name)) > 1, "open \"%s\"", file_name);
   for (i = 0; i < sizeof buf; i++) 
+//   for (i = 0; i < 200; i++) 
     {
       char c;
       CHECK (read (fd, &c, 1) > 0, "read \"%s\"", file_name);

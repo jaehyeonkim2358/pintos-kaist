@@ -8,6 +8,7 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 #include "threads/init.h"
+#include "devices/input.h"
 
 #include <stdlib.h>
 
@@ -16,6 +17,7 @@
 #include "filesys/fsutil.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "lib/kernel/console.h"
 #include "threads/vaddr.h"
 #include "threads/palloc.h"
 
@@ -118,7 +120,7 @@ void halt_handler(struct intr_frame *f) {
 void exit_handler(struct intr_frame *f) {
     int status = (int)F_ARG1;
     thread_current()->process_status = status;
-    F_RAX = status;
+    F_RAX = thread_current()->process_status;
     thread_exit ();
 }
 
@@ -175,13 +177,14 @@ void open_handler(struct intr_frame *f) {
     struct file *o_file = NULL;
     int fd = -1;
     
-    if(file_name == NULL) kern_exit(f, -1);
+    if(file_name == NULL)  return;
     if(!address_check(file_name)) kern_exit(f, -1);
 
     acquire_file_lock(&file_lock);
-    if((o_file = filesys_open(file_name)) == NULL) return;
+    o_file = filesys_open(file_name);
     release_file_lock(&file_lock);
 
+    if(o_file == NULL) return;
     if((fd = fd_list_insert(o_file)) == -1) kern_exit(f, -1);
 
     F_RAX = fd;
@@ -199,21 +202,31 @@ void filesize_handler(struct intr_frame *f) {
 
 void read_handler(struct intr_frame *f) {
     int fd = F_ARG1;
-    void *buffer = (void *)F_ARG2;
+    char *buffer = (char *)F_ARG2;
     unsigned size = F_ARG3;
+    int32_t read_byte = 0;
+    int i = 0;
 
-    if(fd < 0 || FDLIST_LEN <= fd) kern_exit(f, -1);
-    if(fd == 1) kern_exit(f, -1);
+    if(fd < 0 || FDLIST_LEN <= fd) return;
+    if(fd == 1)  return;
     if(!address_check(buffer)) kern_exit(f, -1);
 
-    struct file *file_ = fd_list_get_file(fd);
-    if(file_ == NULL) return;
+    if(fd == STDIN_FILENO) {
+        acquire_file_lock(&file_lock);
+        while(size-- > 0) {
+            buffer[i++] = (char) input_getc();
+            read_byte++;
+        }
+        F_RAX = read_byte;
+        release_file_lock(&file_lock);
+    } else {
+        struct file *file_ = fd_list_get_file(fd);
+        if(file_ == NULL) return;
 
-    acquire_file_lock(&file_lock);
-    size = file_read(file_, buffer, size);
-    release_file_lock(&file_lock);
-    
-    F_RAX = size;
+        acquire_file_lock(&file_lock);
+        F_RAX = file_read(file_, buffer, size);
+        release_file_lock(&file_lock);
+    }
 }
 
 void write_handler(struct intr_frame *f) {
@@ -221,31 +234,18 @@ void write_handler(struct intr_frame *f) {
     char *buffer = (char *)F_ARG2;
     unsigned size = F_ARG3;
 
-    if(fd <= 0) return;
-
+    if(fd <= 0 || fd >= FDLIST_LEN) return;
     if(!address_check(buffer)) kern_exit(f, -1);
 
     if(fd == 1) {
-        if(size > 0) {
-            if(strlen(buffer) > size) {
-                char new_buf[size];
-                strlcpy(new_buf, buffer, size);
-                printf("%s", new_buf);
-            } else {
-                printf("%s", buffer);
-            }
-        } else {
-            size = 0;
-        }
+        putbuf(buffer, size);
     } else {
         struct file *file_ = fd_list_get_file(fd);
         if(file_ == NULL) return;
-        
         acquire_file_lock(&file_lock);
         size = file_write(file_, buffer, size);
         release_file_lock(&file_lock);
     }
-    
     F_RAX = size;
 }
 
@@ -261,7 +261,13 @@ void seek_handler(struct intr_frame *f) {
 }
 
 void tell_handler(struct intr_frame *f) {
-    // file_tell();
+    int fd = (int)F_ARG1;
+    struct file *tell_file = fd_list_get_file(fd);
+    if(tell_file == NULL) kern_exit(f, -1);
+
+    acquire_file_lock(&file_lock);
+    F_RAX = file_tell(tell_file);
+    release_file_lock(&file_lock);
 }
 
 void close_handler(struct intr_frame *f) {
@@ -269,11 +275,11 @@ void close_handler(struct intr_frame *f) {
     struct file *file_ = fd_list_get_file(fd);
     if(file_ == NULL) return;
 
+    fd_list_remove(fd);
+
     acquire_file_lock(&file_lock);
     file_close(file_);
     release_file_lock(&file_lock);
-
-    fd_list_remove(fd);
 }
 
 
@@ -378,20 +384,22 @@ fd_list_get_file(int fd) {
 
 void
 acquire_file_lock (struct lock *flie_lock) {
-	if (!intr_context () && use_file_read_lock) {
-		if (lock_held_by_current_thread (flie_lock)) 
-			file_read_lock_depth++; 
-		else
-			lock_acquire (flie_lock); 
-	}
+	// if (!intr_context () && use_file_read_lock) {
+	// 	if (lock_held_by_current_thread (flie_lock)) 
+	// 		file_read_lock_depth++; 
+	// 	else
+	// 		lock_acquire (flie_lock); 
+	// }
+    lock_acquire (flie_lock); 
 }
 
 void
 release_file_lock (struct lock *flie_lock) {
-	if (!intr_context () && use_file_read_lock) {
-		if (file_read_lock_depth > 0)
-			file_read_lock_depth--;
-		else
-			lock_release (flie_lock); 
-	}
+	// if (!intr_context () && use_file_read_lock) {
+	// 	if (file_read_lock_depth > 0)
+	// 		file_read_lock_depth--;
+	// 	else
+	// 		lock_release (flie_lock); 
+	// }
+    lock_release (flie_lock); 
 }

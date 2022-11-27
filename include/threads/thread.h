@@ -109,7 +109,6 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
-    bool parent_is_main;                /* PROJECT 2 - System Calls */
     int ori_priority;                   /* PROJECT 1 - Priority Scheduling */
     int process_status;                 /* PROJECT 2 - System Calls */
     unsigned int holding_lock_count;    /* PROJECT 1 - Priority Scheduling */
@@ -178,6 +177,8 @@ void do_iret (struct intr_frame *tf);
 /* PROJECT 1 - Alarm Clock */
 void thread_wakeup(struct semaphore *sema, int64_t ticks);
 struct semaphore *get_sleep_list(void);
+void set_next_tick_to_awake(int64_t next);
+int64_t get_next_tick_to_awake(void);
 
 /* PROJECT 1 - Priority Scheduling */
 bool thread_compare(const struct list_elem *a, const struct list_elem *b, void *aux);

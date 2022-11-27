@@ -31,6 +31,9 @@
         "init.h": "c",
         "vaddr.h": "c",
         "directory.h": "c",
-        "syn-read.h": "c"
+        "syn-read.h": "c",
+        "console.h": "c",
+        "input.h": "c",
+        "random.h": "c"
     }
 }

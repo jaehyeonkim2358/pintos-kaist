@@ -66,8 +66,8 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
-		thread_block ();
+		list_push_back (&sema->waiters, &thread_current()->elem);
+		thread_block();
 	}
 	sema->value--;
 	intr_set_level (old_level);
@@ -115,9 +115,12 @@ sema_up (struct semaphore *sema) {
         thread_unblock(t);
     }
     sema->value++;
+
     if(!intr_context()){
-        if(t != NULL && thread_compare_2(thread_current(), t)) {
-            thread_yield();    
+        if(t != NULL) {
+            if(thread_compare_2(thread_current(), t)) {
+                thread_yield();
+            }
         }
     }
 	intr_set_level (old_level);
@@ -252,7 +255,6 @@ lock_try_acquire (struct lock *lock) {
 	success = sema_try_down (&lock->semaphore);
 	if (success)
 		lock->holder = thread_current ();
-        // lock->holder_priority = thread_get_priority();
 	return success;
 }
 
@@ -266,9 +268,12 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
+    enum intr_level old_level;
+    old_level = intr_disable();
     lock->holder->holding_lock_count -= 1;
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
+    intr_set_level(old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -364,8 +369,9 @@ cond_broadcast (struct condition *cond, struct lock *lock) {
 	ASSERT (cond != NULL);
 	ASSERT (lock != NULL);
 
-	while (!list_empty (&cond->waiters))
-		cond_signal (cond, lock);
+	while (!list_empty (&cond->waiters)) {
+        cond_signal (cond, lock);
+    }
 }
 
 struct semaphore *
@@ -381,6 +387,5 @@ sema_compare(const struct list_elem *a, const struct list_elem *b, void *aux) {
     struct list_elem *ae, *be;
     ae = list_begin(&(&list_entry(a, struct semaphore_elem, elem)->semaphore)->waiters);
     be = list_begin(&(&list_entry(b, struct semaphore_elem, elem)->semaphore)->waiters);
-    return list_entry(ae, struct thread, elem)->priority <
-            list_entry(be, struct thread, elem)->priority;
+    return thread_compare_2(list_entry(ae, struct thread, elem), list_entry(be, struct thread, elem));
 }

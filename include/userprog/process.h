@@ -13,4 +13,6 @@ int process_wait (tid_t);
 void process_exit (void);
 void process_activate (struct thread *next);
 
+struct child_list_elem * process_set_child_list(struct thread *parent, struct thread *child);
+
 #endif /* userprog/process.h */

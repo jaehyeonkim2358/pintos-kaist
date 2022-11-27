@@ -6,9 +6,7 @@
 void syscall_init (void);
 
 
-
 struct lock file_lock;
-// struct lock file_write_lock;
 bool use_file_read_lock;
 int file_read_lock_depth;
 

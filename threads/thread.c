@@ -43,6 +43,7 @@ static struct list destruction_req;
 
 /* PROJECT 1 - Alarm Clock */
 static struct semaphore sleep_list;
+static int64_t next_tick;
 
 /* Statistics. */
 static long long idle_ticks;    /* # of timer ticks spent idle. */
@@ -200,6 +201,10 @@ thread_create (const char *name, int priority,
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
 
+    /* PROJECT 2 - System Calls */
+    t->parent_process = thread_current();
+    t->my_info = process_set_child_list(thread_current(), t);
+
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
 	t->tf.rip = (uintptr_t) kernel_thread;
@@ -215,7 +220,7 @@ thread_create (const char *name, int priority,
 	thread_unblock (t);
 
     /* PROJECT 1 - Priority Scheduling */
-    if(thread_current()->priority < t->priority) {
+    if(thread_compare_2(thread_current(), t)) {
         thread_yield();
     }
 
@@ -314,8 +319,9 @@ thread_yield (void) {
 	ASSERT (!intr_context ());
 
 	old_level = intr_disable ();
-    if (curr != idle_thread)
+    if (curr != idle_thread){
         list_push_back (&ready_list, &curr->elem); 
+    }
     do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -449,7 +455,6 @@ init_thread (struct thread *t, const char *name, int priority) {
 
     t->my_exec_file = NULL;
     list_init(&t->child_list);
-    t->parent_is_main = false;
 
     #ifdef USERPROG
     t->process_status = 0;
@@ -469,7 +474,7 @@ bool
 thread_compare_2(struct thread *at, struct thread *bt) {
     if(at->priority == bt->priority) {
         if(at->ori_priority == bt->ori_priority) {
-            return at->priority < bt->priority;
+            return false;
         } else if(at->ori_priority < bt->ori_priority) {
             return at->ori_priority != ORI_PRI_DEFAULT;
         } else {
@@ -490,7 +495,7 @@ next_thread_to_run (void) {
 	if (list_empty (&ready_list)) {
         return idle_thread;
     } else {
-		return thread_pop_max(&ready_list);
+        return thread_pop_max(&ready_list);
     }
 }
 
@@ -604,6 +609,8 @@ do_schedule(int status) {
 			list_entry (list_pop_front (&destruction_req), struct thread, elem);
 		palloc_free_page(victim);
 	}
+    // printf("next thread's tid ======= %d\n", thread_get_max(&ready_list)->tid);
+    
 	thread_current ()->status = status;
 	schedule ();
 }
@@ -674,19 +681,34 @@ thread_wakeup(struct semaphore *sema, int64_t ticks) {
 
 	if (!list_empty (&sema->waiters)) {
         int size = list_size(&sema->waiters);
-        for(int i = 0; i < size; i++) {
-            t = list_entry (list_pop_front (&sema->waiters), struct thread, elem);
-            if(t->wakeup_ticks > ticks) {
-                list_push_back (&sema->waiters, &t->elem);
-            } else {
+        struct list_elem *cur = list_begin(&sema->waiters);
+        while(cur != list_end(&sema->waiters)) {
+            t = list_entry (cur, struct thread, elem);
+            if(t->wakeup_ticks <= ticks) {
+                cur = list_remove(cur);
                 thread_unblock (t);
                 sema->value++;
+            } else {
+                cur = list_next(cur);
+                set_next_tick_to_awake(t->wakeup_ticks);
             }
         }
     }
 
 	intr_set_level (old_level);
 }
+
+
+void
+set_next_tick_to_awake(int64_t next) {
+    next_tick = next_tick <= next ? next_tick : next;
+}
+
+int64_t
+get_next_tick_to_awake(void) {
+    return next_tick;
+}
+
 
 /* sleep_list의 pointer를 return한다. */
 struct semaphore *get_sleep_list(void) {
