@@ -205,8 +205,8 @@ __do_fork (void **aux) {
     process_init();
 
 	/* Finally, switch to the newly created process. */
-    current->parent_process = parent;
-    current->my_info = process_set_child_list(parent, current);
+    // current->parent_process = parent;
+    // current->my_info = process_set_child_list(parent, current);
     if_.R.rax = 0;
     sema_up(sema);
 

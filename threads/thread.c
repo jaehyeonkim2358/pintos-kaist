@@ -199,6 +199,7 @@ thread_create (const char *name, int priority,
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
+    t->my_info = process_set_child_list(thread_current(), t);
 
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
@@ -449,7 +450,6 @@ init_thread (struct thread *t, const char *name, int priority) {
 
     t->my_exec_file = NULL;
     list_init(&t->child_list);
-    t->parent_is_main = false;
 
     #ifdef USERPROG
     t->process_status = 0;
