@@ -198,21 +198,26 @@ lock_acquire (struct lock *lock) {
     if(!lock_try_acquire(lock)) {
         struct thread *holder = NULL;
         int old_priority = ORI_PRI_DEFAULT;
+        bool donate_flag = false;
 
         thread_current()->waiting_lock = lock;              // donator가 자신이 대기하는 lock을 멤버로 저장
         holder = lock->holder;
-        if(holder->ori_priority == ORI_PRI_DEFAULT) {
-            holder->ori_priority = holder->priority;        // holder   : 양도 전, 자신의 우선순위를 저장 (최초 lock 획득 시)
-        }
-        old_priority = holder->priority;                    // donator  : 양도 전, holder의 우선순위를 저장
-        holder->priority = thread_get_priority();           // 우선순위 양도 (현재 lock의 holder)
 
-        /* 우선순위 양도 (또 다른 lock을 얻기위해 대기하는 holder들) */
-        struct thread *cur;
-        cur = holder;
-        while(cur->waiting_lock != NULL) {
-            cur = cur->waiting_lock->holder;
-            cur->priority = thread_get_priority();
+        if(holder->priority < thread_current()->priority) {
+            donate_flag = true;
+            if(holder->ori_priority == ORI_PRI_DEFAULT) {
+                holder->ori_priority = holder->priority;        // holder   : 양도 전, 자신의 우선순위를 저장 (최초 lock 획득 시)
+            }
+            old_priority = holder->priority;                    // donator  : 양도 전, holder의 우선순위를 저장
+            holder->priority = thread_get_priority();           // 우선순위 양도 (현재 lock의 holder)
+
+            /* 우선순위 양도 (또 다른 lock을 얻기위해 대기하는 holder들) */
+            struct thread *cur;
+            cur = holder;
+            while(cur->waiting_lock != NULL) {
+                cur = cur->waiting_lock->holder;
+                cur->priority = thread_get_priority();
+            }
         }
 
         sema_down (&lock->semaphore);
@@ -224,10 +229,15 @@ lock_acquire (struct lock *lock) {
          * context switch가 발생하여 unblock되었다는 의미이다. */
 
         /* 우선순위 복구 */
-        if(holder->holding_lock_count == 0) {           // holder가 hold한 다른 lock이 더 이상 없는 경우
-            holder->priority = holder->ori_priority;
-        } else {                                        // holder가 hold한 다른 lock이 아직 존재하는 경우
-            holder->priority = old_priority;
+        if(donate_flag) {
+            if(holder->holding_lock_count <= 0) {           // holder가 hold한 다른 lock이 더 이상 없는 경우
+                if(holder->ori_priority != ORI_PRI_DEFAULT) {
+                    holder->priority = holder->ori_priority;
+                }
+                holder->ori_priority = ORI_PRI_DEFAULT;
+            } else {                                        // holder가 hold한 다른 lock이 아직 존재하는 경우
+                holder->priority = old_priority;
+            }
         }
 
         lock->holder = thread_current ();

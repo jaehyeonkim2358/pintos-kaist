@@ -187,4 +187,5 @@ struct thread *thread_get_max(struct list *list);
 
 /* PROJECT 2 - System Calls */
 int destruction_req_contains(tid_t tid);
+void scan_ready_list();
 #endif /* threads/thread.h */

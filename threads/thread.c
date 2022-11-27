@@ -600,8 +600,7 @@ do_schedule(int status) {
 	ASSERT (intr_get_level () == INTR_OFF);
 	ASSERT (thread_current()->status == THREAD_RUNNING);
 	while (!list_empty (&destruction_req)) {
-		struct thread *victim =
-			list_entry (list_pop_front (&destruction_req), struct thread, elem);
+		struct thread *victim = list_entry (list_pop_front (&destruction_req), struct thread, elem);
 		palloc_free_page(victim);
 	}
 	thread_current ()->status = status;
@@ -616,6 +615,8 @@ schedule (void) {
 	ASSERT (intr_get_level () == INTR_OFF);
 	ASSERT (curr->status != THREAD_RUNNING);
 	ASSERT (is_thread (next));
+
+    // scan_ready_list();
 	/* Mark us as running. */
 	next->status = THREAD_RUNNING;
 
@@ -694,14 +695,23 @@ struct semaphore *get_sleep_list(void) {
 }
 
 struct thread *thread_pop_max(struct list *list) {
+    enum intr_level old_level;
     struct list_elem *max_elem;
+
+    old_level = intr_disable();
     max_elem = list_max(list, thread_compare, NULL);
     list_remove(max_elem);    
     return list_entry(max_elem, struct thread, elem);
+    intr_set_level(old_level);
 }
 
 struct thread *thread_get_max(struct list *list) {
-    return list_entry(list_max(list, thread_compare, NULL), struct thread, elem);
+    enum intr_level old_level;
+    struct thread *result;
+    old_level = intr_disable();
+    result = list_entry(list_max(list, thread_compare, NULL), struct thread, elem);
+    intr_set_level(old_level);
+    return result;
 }
 
 
@@ -723,4 +733,35 @@ destruction_req_contains(tid_t tid) {
     }
 
     return -2;
+}
+
+
+void
+scan_ready_list() {
+    enum intr_level old_level;
+    enum thread_status old_status;
+    struct thread *curr = running_thread();
+    if(!is_thread(curr)) return;
+
+    old_level = intr_disable();
+
+    old_status = curr->status;
+    curr->status = THREAD_RUNNING;
+
+    if(!list_empty(&ready_list)) {
+        struct list_elem *cursor = list_begin(&ready_list);
+        printf("[ ");
+        while(cursor != list_end(&ready_list)) {
+            struct thread *cur = list_entry(cursor, struct thread, elem);
+            printf("(t-%2d, op=%d, hc=%d)", cur->tid, cur->ori_priority, cur->holding_lock_count);
+            cursor = list_next(cursor);
+            if(cursor != list_end(&ready_list)) {
+                printf(", ");
+            }
+        }
+        printf(" ]\n");
+    }
+
+    curr->status = old_status;
+    intr_set_level(old_level);
 }
