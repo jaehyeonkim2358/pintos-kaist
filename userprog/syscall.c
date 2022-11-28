@@ -186,6 +186,12 @@ void open_handler(struct intr_frame *f) {
 
     fd = fd_list_insert(o_file);
 
+    /* fd_list에 저장 실패시 file close */
+    if(fd == -1) {
+        acquire_file_lock(&file_lock);
+        file_close(o_file);
+        release_file_lock(&file_lock);
+    }
     F_RAX = fd;
 }
 

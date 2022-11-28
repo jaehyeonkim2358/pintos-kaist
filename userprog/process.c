@@ -98,7 +98,6 @@ tid_t
 process_fork (const char *name, struct intr_frame *if_) {
     struct semaphore sema;
     struct thread *p_thread = thread_current();
-
     void *arr[3] = {p_thread, if_, &sema};
     tid_t child_pid = 0;
     
@@ -239,8 +238,9 @@ __do_fork (void **aux) {
     if_.R.rax = 0;
     sema_up(sema);
 
-	if (succ)
-		do_iret (&if_);
+	if (succ) {
+        do_iret (&if_);
+    }
 error:
     current->my_info->child_exit_status = -1;
     sema_up(sema);
@@ -351,23 +351,24 @@ process_exit (void) {
         printf("%s: exit(%d)\n",curr->name, curr_exit_status);
     }
 
-    
-
-    acquire_file_lock(&file_lock);
     /* 실행하던 파일 닫기 */
     if(curr->my_exec_file != NULL) {
+        acquire_file_lock(&file_lock);
         file_close(curr->my_exec_file);
+        release_file_lock(&file_lock);
         curr->my_exec_file = NULL;
     }
 
     /* fd table의 파일 닫기 */
+    acquire_file_lock(&file_lock);
     for(int i = 0; i < FDLIST_LEN; i++) {
-        if(curr->fd_list[i] != NULL) {
-            file_close(curr->fd_list[i]);
-        }
+        file_close(curr->fd_list[i]);
     }
     release_file_lock(&file_lock);
 
+    process_cleanup ();
+
+    /* child_list의 child_list_elem들을 free() 한다. */
     enum intr_level old_level;
     old_level = intr_disable();
     while(!list_empty(&curr->child_list)) {
@@ -378,8 +379,6 @@ process_exit (void) {
         free(tgt);
     }
     intr_set_level(old_level);
-
-	process_cleanup ();
 
     if(curr->my_info != NULL) {
         curr->my_info->child_status = THREAD_DYING;
@@ -505,8 +504,9 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
-	if (t->pml4 == NULL)
+	if (t->pml4 == NULL) {
 		goto done;
+    }
 	process_activate (thread_current ());
 
     /* PROJECT 2: ARGUMENT PASSING */
