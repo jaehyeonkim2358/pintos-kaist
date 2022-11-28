@@ -109,17 +109,14 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
-    bool parent_is_main;                /* PROJECT 2 - System Calls */
-    int ori_priority;                   /* PROJECT 1 - Priority Scheduling */
-    int process_status;                 /* PROJECT 2 - System Calls */
-    unsigned int holding_lock_count;    /* PROJECT 1 - Priority Scheduling */
     int64_t wakeup_ticks;               /* PROJECT 1 - Alarm Clock */
-
+    int ori_priority;                   /* PROJECT 1 - Priority Scheduling */
+    unsigned int holding_lock_count;    /* PROJECT 1 - Priority Scheduling */
     struct lock *waiting_lock;          /* PROJECT 1 - Priority Scheduling */
 
+    int process_status;                 /* PROJECT 2 - System Calls */
     struct thread *parent_process;      /* PROJECT 2 - System Calls */
     struct list child_list;             /* PROJECT 2 - System Calls */
-
     struct file *fd_list[FDLIST_LEN];   /* PROJECT 2 - System Calls */
     struct file *my_exec_file;          /* PROJECT 2 - System Calls */
     struct child_list_elem *my_info;

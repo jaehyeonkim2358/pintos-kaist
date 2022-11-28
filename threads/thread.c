@@ -616,7 +616,6 @@ schedule (void) {
 	ASSERT (curr->status != THREAD_RUNNING);
 	ASSERT (is_thread (next));
 
-    // scan_ready_list();
 	/* Mark us as running. */
 	next->status = THREAD_RUNNING;
 

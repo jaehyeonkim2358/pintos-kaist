@@ -179,10 +179,12 @@ void open_handler(struct intr_frame *f) {
     if(!address_check(file_name)) kern_exit(f, -1);
 
     acquire_file_lock(&file_lock);
-    if((o_file = filesys_open(file_name)) == NULL) return;
+    o_file = filesys_open(file_name);
     release_file_lock(&file_lock);
 
-    if((fd = fd_list_insert(o_file)) == -1) kern_exit(f, -1);
+    if(o_file == NULL) return;
+
+    fd = fd_list_insert(o_file);
 
     F_RAX = fd;
 }
@@ -326,7 +328,11 @@ void umount_handler(struct intr_frame *f) {
 /* 여기서 부터는 system call handler 아님 */
 bool
 address_check(char *ptr) {
-    return pml4_get_page(thread_current()->pml4, ptr) != NULL;
+    struct thread *curr = thread_current();
+    if(is_kernel_vaddr(ptr) || pml4_get_page(curr->pml4, ptr) == NULL) {
+        return false;
+    }
+    return true;
 }
 
 

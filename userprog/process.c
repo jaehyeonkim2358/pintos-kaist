@@ -100,18 +100,48 @@ process_fork (const char *name, struct intr_frame *if_) {
     struct thread *p_thread = thread_current();
 
     void *arr[3] = {p_thread, if_, &sema};
-    tid_t child_pid;
+    tid_t child_pid = 0;
     
     sema_init(&sema, 0);
 
     /* Clone current thread to new thread.*/
     child_pid = thread_create (name, PRI_DEFAULT, __do_fork, arr);
 
-    if(child_pid != TID_ERROR) {
+    if(child_pid == TID_ERROR) {
+        return TID_ERROR;
+    } else {
         sema_down(&sema);
+        if(get_child_exit_status(thread_current(), child_pid) == -1) {
+            return -1;
+        }
     }
+    
 	return child_pid;
 }
+
+
+int
+get_child_exit_status (struct thread* parent, tid_t child_tid) {
+    struct list *child_list = &parent->child_list;
+    struct list_elem *cur;
+    struct child_list_elem *target = NULL;
+
+    if(!list_empty(child_list)) {
+        cur = list_begin(child_list);
+
+        /* child_list에서 tid가 child_tid랑 같은 자식을 찾는다. */
+        while(cur != list_tail(child_list)) {
+            target = list_entry(cur, struct child_list_elem, elem);
+
+            if(target->child_tid == child_tid) {
+                return target->child_exit_status;
+            }
+            cur = list_next(cur);
+        }
+    }
+    return -1;
+}
+
 
 #ifndef VM
 /* Duplicate the parent's address space by passing this function to the
@@ -146,6 +176,7 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
         // PANIC("fail to insert page");
 		/* 6. TODO: if fail to insert page, do error handling. */
+        palloc_free_page(newpage);
         return false;
 	}
 	return true;
@@ -191,7 +222,7 @@ __do_fork (void **aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
     /* Project2: System Calls */
-    for(int i = 3; i < FDLIST_LEN; i++) {
+    for(int i = 0; i < FDLIST_LEN; i++) {
         struct file *p_f = (parent->fd_list)[i];
         if(p_f == NULL) continue;
 
@@ -203,7 +234,7 @@ __do_fork (void **aux) {
     }
 
     process_init();
-
+    
 	/* Finally, switch to the newly created process. */
     if_.R.rax = 0;
     sema_up(sema);
@@ -211,7 +242,9 @@ __do_fork (void **aux) {
 	if (succ)
 		do_iret (&if_);
 error:
+    current->my_info->child_exit_status = -1;
     sema_up(sema);
+    current->process_status = -1;
 	thread_exit ();
 }
 
@@ -220,7 +253,7 @@ process_set_child_list(struct thread *parent, struct thread *child) {
     struct child_list_elem *child_elem = malloc(sizeof(struct child_list_elem));
     child_elem->child_status = child->status;
     child_elem->child_tid = child->tid;
-    child_elem->child_exit_status = -1;
+    child_elem->child_exit_status = 0;
     sema_init(&child_elem->wait_sema, 0);
     
     list_push_back(&parent->child_list, &child_elem->elem);
@@ -279,37 +312,29 @@ process_wait (tid_t child_tid) {
     struct thread *current = thread_current();
     int return_val = 0;
 
-    /* main thread의 경우 */
-    if(current->tid == 1) {
-        while(!current->parent_is_main) {
-            continue;
-        }
-        return 0;
-    } else {
-        struct list *child_list = &current->child_list;
-        struct list_elem *cur;
-        struct child_list_elem *target;
+    struct list *child_list = &current->child_list;
+    struct list_elem *cur;
+    struct child_list_elem *target;
 
-        if(!list_empty(child_list)) {
-            cur = list_begin(child_list);
-            target = NULL;
+    if(!list_empty(child_list)) {
+        cur = list_begin(child_list);
+        target = NULL;
 
-            /* child_list에서 tid가 child_tid랑 같은 자식을 찾는다. */
-            while(cur != list_tail(child_list)) {
-                target = list_entry(cur, struct child_list_elem, elem);
+        /* child_list에서 tid가 child_tid랑 같은 자식을 찾는다. */
+        while(cur != list_tail(child_list)) {
+            target = list_entry(cur, struct child_list_elem, elem);
 
-                /* 자식을 찾은 뒤, 필요한 정보를 꺼내고, child_list에서 제거하고, child_list_elem을 free한다. */
-                if(target->child_tid == child_tid) {
-                    while(target->child_status != THREAD_DYING) {
-                        sema_down(&target->wait_sema);
-                    }
-                    return_val = target->child_exit_status;
-                    list_remove(cur);
-                    free(target);
-                    return return_val;
+            /* 자식을 찾은 뒤, 필요한 정보를 꺼내고, child_list에서 제거하고, child_list_elem을 free한다. */
+            if(target->child_tid == child_tid) {
+                while(target->child_status != THREAD_DYING) {
+                    sema_down(&target->wait_sema);
                 }
-                cur = list_next(cur);
+                return_val = target->child_exit_status;
+                list_remove(cur);
+                free(target);
+                return return_val;
             }
+            cur = list_next(cur);
         }
     }
     return -1;
@@ -326,15 +351,7 @@ process_exit (void) {
         printf("%s: exit(%d)\n",curr->name, curr_exit_status);
     }
 
-    if(parent->tid == 1) {
-        parent->parent_is_main = true;
-    } else {
-        if(curr->my_info != NULL) {
-            curr->my_info->child_status = THREAD_DYING;
-            curr->my_info->child_exit_status = curr_exit_status;
-            sema_up(&curr->my_info->wait_sema);
-        }
-    }
+    
 
     acquire_file_lock(&file_lock);
     /* 실행하던 파일 닫기 */
@@ -353,20 +370,22 @@ process_exit (void) {
 
     enum intr_level old_level;
     old_level = intr_disable();
-
-    struct list_elem *cursor = list_begin(&curr->child_list);
-    while(cursor != list_tail(&curr->child_list)) {
-        struct child_list_elem *tgt = list_entry(cursor, struct child_list_elem, elem);
+    while(!list_empty(&curr->child_list)) {
+        struct child_list_elem *tgt = list_entry(list_pop_front(&curr->child_list), struct child_list_elem, elem);
         if(tgt->child_status != THREAD_DYING) {
             tgt = NULL;
         }
         free(tgt);
-        cursor = list_next(cursor);
     }
-
     intr_set_level(old_level);
 
 	process_cleanup ();
+
+    if(curr->my_info != NULL) {
+        curr->my_info->child_status = THREAD_DYING;
+        curr->my_info->child_exit_status = curr_exit_status;
+        sema_up(&curr->my_info->wait_sema);
+    }
 }
 
 /* Free the current process's resources. */
@@ -626,6 +645,9 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
+    if(!success) {
+        file_close(file);
+    }
 	return success;
 }
 
