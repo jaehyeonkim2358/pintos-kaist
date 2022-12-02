@@ -87,13 +87,13 @@ syscall_init (void) {
 			((uint64_t)SEL_KCSEG) << 32);
 	write_msr(MSR_LSTAR, (uint64_t) syscall_entry);
 
-    lock_init(&file_lock);
-    use_file_read_lock = true;
 	/* The interrupt service rountine should not serve any interrupts
 	 * until the syscall_entry swaps the userland stack to the kernel
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+    
+    lock_init(&file_lock);
 }
 
 /* The main system call interface */
@@ -106,7 +106,7 @@ syscall_handler (struct intr_frame *f) {
     if(syscall.syscall_num == F_RAX) {
         syscall.function(f);
     } else {
-        printf("굉장히 잘못된 그 저기 그거..\n");
+        PANIC("syscall_list index와 syscall number가 일치하지 않음");
     }
 }
 
@@ -117,7 +117,7 @@ void halt_handler(struct intr_frame *f) {
 
 void exit_handler(struct intr_frame *f) {
     int status = (int)F_ARG1;
-    thread_current()->process_status = status;
+    thread_current()->exit_status = status;
     F_RAX = status;
     thread_exit ();
 }
@@ -152,9 +152,9 @@ void create_handler(struct intr_frame *f) {
     if(file_name == NULL) kern_exit(f, -1);
     if(!address_check(file_name)) kern_exit(f, -1);
     
-    acquire_file_lock(&file_lock);
+    lock_acquire(&file_lock);
     F_RAX = filesys_create(file_name, initial_size);
-    release_file_lock(&file_lock);
+    lock_release(&file_lock);
 }
 
 void remove_handler(struct intr_frame *f) {
@@ -164,9 +164,9 @@ void remove_handler(struct intr_frame *f) {
     if(file == NULL) return;
     if(strlen(file) == 0) return;
 
-    acquire_file_lock(&file_lock);
+    lock_acquire(&file_lock);
     F_RAX = filesys_remove(file);
-    release_file_lock(&file_lock);
+    lock_release(&file_lock);
 }
 
 void open_handler(struct intr_frame *f) {
@@ -178,9 +178,9 @@ void open_handler(struct intr_frame *f) {
     if(file_name == NULL) kern_exit(f, -1);
     if(!address_check(file_name)) kern_exit(f, -1);
 
-    acquire_file_lock(&file_lock);
+    lock_acquire(&file_lock);
     o_file = filesys_open(file_name);
-    release_file_lock(&file_lock);
+    lock_release(&file_lock);
 
     if(o_file == NULL) return;
 
@@ -188,9 +188,9 @@ void open_handler(struct intr_frame *f) {
 
     /* fd_list에 저장 실패시 file close */
     if(fd == -1) {
-        acquire_file_lock(&file_lock);
+        lock_acquire(&file_lock);
         file_close(o_file);
-        release_file_lock(&file_lock);
+        lock_release(&file_lock);
     }
     F_RAX = fd;
 }
@@ -200,9 +200,9 @@ void filesize_handler(struct intr_frame *f) {
     struct file *file_ = fd_list_get_file(fd);
     if(file_ == NULL) return;
 
-    acquire_file_lock(&file_lock);
+    lock_acquire(&file_lock);
     F_RAX = file_length(file_);
-    release_file_lock(&file_lock);
+    lock_release(&file_lock);
 }
 
 void read_handler(struct intr_frame *f) {
@@ -217,9 +217,9 @@ void read_handler(struct intr_frame *f) {
     struct file *file_ = fd_list_get_file(fd);
     if(file_ == NULL) return;
 
-    acquire_file_lock(&file_lock);
+    lock_acquire(&file_lock);
     size = file_read(file_, buffer, size);
-    release_file_lock(&file_lock);
+    lock_release(&file_lock);
     
     F_RAX = size;
 }
@@ -249,9 +249,9 @@ void write_handler(struct intr_frame *f) {
         struct file *file_ = fd_list_get_file(fd);
         if(file_ == NULL) return;
         
-        acquire_file_lock(&file_lock);
+        lock_acquire(&file_lock);
         size = file_write(file_, buffer, size);
-        release_file_lock(&file_lock);
+        lock_release(&file_lock);
     }
     
     F_RAX = size;
@@ -260,16 +260,24 @@ void write_handler(struct intr_frame *f) {
 void seek_handler(struct intr_frame *f) {
     int fd = (int)F_ARG1;
     unsigned position = (unsigned)F_ARG2;
-    struct file *getfile = fd_list_get_file(fd);
+    struct file *getfile = NULL;
+
+    getfile = fd_list_get_file(fd);
     if(getfile == NULL) kern_exit(f, -1);
 
-    acquire_file_lock(&file_lock);
+    lock_acquire(&file_lock);
     file_seek(getfile, position);
-    release_file_lock(&file_lock);
+    lock_release(&file_lock);
 }
 
 void tell_handler(struct intr_frame *f) {
-    // file_tell();
+    int fd = F_ARG1;
+    struct file *tell_file = fd_list_get_file(fd);
+    if(tell_file == NULL) kern_exit(f, -1);
+
+    lock_acquire(&file_lock);
+    F_RAX = file_tell(tell_file);
+    lock_release(&file_lock);
 }
 
 void close_handler(struct intr_frame *f) {
@@ -277,9 +285,9 @@ void close_handler(struct intr_frame *f) {
     struct file *file_ = fd_list_get_file(fd);
     if(file_ == NULL) return;
 
-    acquire_file_lock(&file_lock);
+    lock_acquire(&file_lock);
     file_close(file_);
-    release_file_lock(&file_lock);
+    lock_release(&file_lock);
 
     fd_list_remove(fd);
 }
@@ -385,25 +393,4 @@ struct file *
 fd_list_get_file(int fd) {
     if(fd < 3 || fd >= FDLIST_LEN) return NULL;
     return (thread_current()->fd_list)[fd];
-}
-
-
-void
-acquire_file_lock (struct lock *flie_lock) {
-	if (!intr_context () && use_file_read_lock) {
-		if (lock_held_by_current_thread (flie_lock)) 
-			file_read_lock_depth++; 
-		else
-			lock_acquire (flie_lock); 
-	}
-}
-
-void
-release_file_lock (struct lock *flie_lock) {
-	if (!intr_context () && use_file_read_lock) {
-		if (file_read_lock_depth > 0)
-			file_read_lock_depth--;
-		else
-			lock_release (flie_lock); 
-	}
 }

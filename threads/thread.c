@@ -450,11 +450,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 
     t->my_exec_file = NULL;
     list_init(&t->child_list);
-
-    #ifdef USERPROG
-    t->process_status = 0;
+    t->exit_status = 0;
     for(int i = 0; i < FDLIST_LEN; i++) { t->fd_list[i] = NULL; }
-    #endif
 }
 
 bool
@@ -725,7 +722,7 @@ destruction_req_contains(tid_t tid) {
         while(cur != list_tail(&destruction_req)) {
             target = list_entry(cur, struct thread, elem);
             if(target->tid == tid) {
-                return target->process_status;
+                return target->exit_status;
             }
             cur = list_next(cur);
         }

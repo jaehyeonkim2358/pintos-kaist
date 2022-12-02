@@ -221,16 +221,22 @@ __do_fork (void **aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
     /* Project2: System Calls */
+    
     for(int i = 0; i < FDLIST_LEN; i++) {
         struct file *p_f = (parent->fd_list)[i];
         if(p_f == NULL) continue;
 
         struct file *dup_f;
-        if((dup_f = file_duplicate(p_f)) == NULL) {
+        lock_acquire(&file_lock);
+        dup_f = file_duplicate(p_f);
+        lock_release(&file_lock);
+        if(dup_f == NULL) {
             goto error;
         }
         (current->fd_list)[i] = dup_f;
     }
+    
+    
 
     process_init();
     
@@ -244,7 +250,7 @@ __do_fork (void **aux) {
 error:
     current->my_info->child_exit_status = -1;
     sema_up(sema);
-    current->process_status = -1;
+    current->exit_status = -1;
 	thread_exit ();
 }
 
@@ -254,6 +260,7 @@ process_set_child_list(struct thread *parent, struct thread *child) {
     child_elem->child_status = child->status;
     child_elem->child_tid = child->tid;
     child_elem->child_exit_status = 0;
+    child_elem->child = child;
     sema_init(&child_elem->wait_sema, 0);
     
     list_push_back(&parent->child_list, &child_elem->elem);
@@ -280,9 +287,7 @@ process_exec (void *f_name) {
 	process_cleanup ();
 
 	/* And then load the binary */
-    acquire_file_lock(&file_lock);
 	success = load (file_name, &_if);
-    release_file_lock(&file_lock);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -345,41 +350,43 @@ void
 process_exit (void) {
 	struct thread *curr = thread_current ();
     struct thread *parent = curr->parent_process;
-    int curr_exit_status = curr->process_status;
+    int curr_exit_status = curr->exit_status;
 
     if(curr->pml4 != NULL) {
         printf("%s: exit(%d)\n",curr->name, curr_exit_status);
     }
 
+    process_cleanup ();
+
     /* 실행하던 파일 닫기 */
     if(curr->my_exec_file != NULL) {
-        acquire_file_lock(&file_lock);
+        lock_acquire(&file_lock);
         file_close(curr->my_exec_file);
-        release_file_lock(&file_lock);
+        lock_release(&file_lock);
         curr->my_exec_file = NULL;
     }
 
     /* fd table의 파일 닫기 */
-    acquire_file_lock(&file_lock);
+    lock_acquire(&file_lock);
     for(int i = 0; i < FDLIST_LEN; i++) {
         file_close(curr->fd_list[i]);
     }
-    release_file_lock(&file_lock);
-
-    process_cleanup ();
+    lock_release(&file_lock);
 
     /* child_list의 child_list_elem들을 free() 한다. */
     enum intr_level old_level;
     old_level = intr_disable();
     while(!list_empty(&curr->child_list)) {
         struct child_list_elem *tgt = list_entry(list_pop_front(&curr->child_list), struct child_list_elem, elem);
+        /* 아직 살아있는 자식이라면, free() 전에 해당 멤버를 NULL로 바꿔준다. */
         if(tgt->child_status != THREAD_DYING) {
-            tgt = NULL;
+            tgt->child->my_info = NULL;
         }
         free(tgt);
     }
     intr_set_level(old_level);
 
+    /* 부모 process가 살아있다면, 사망 여부를 알려준다. */
     if(curr->my_info != NULL) {
         curr->my_info->child_status = THREAD_DYING;
         curr->my_info->child_exit_status = curr_exit_status;
@@ -498,7 +505,9 @@ load (const char *file_name, struct intr_frame *if_) {
 	int i;
 
     if(t->my_exec_file != NULL) {
+        lock_acquire(&file_lock);
         file_close(t->my_exec_file);
+        lock_release(&file_lock);
         t->my_exec_file = NULL;
     }
 
@@ -521,13 +530,16 @@ load (const char *file_name, struct intr_frame *if_) {
     }
 
 	/* Open executable file. */
+    lock_acquire(&file_lock);
 	file = filesys_open (file_name);
+    lock_release(&file_lock);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
 
 	/* Read and verify executable header. */
+    lock_acquire(&file_lock);
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
 			|| memcmp (ehdr.e_ident, "\177ELF\2\1\1", 7)
 			|| ehdr.e_type != 2
@@ -538,18 +550,30 @@ load (const char *file_name, struct intr_frame *if_) {
 		printf ("load: %s: error loading executable\n", file_name);
 		goto done;
 	}
+    lock_release(&file_lock);
 
 	/* Read program headers. */
 	file_ofs = ehdr.e_phoff;
 	for (i = 0; i < ehdr.e_phnum; i++) {
 		struct Phdr phdr;
+        lock_acquire(&file_lock);
+		if (file_ofs < 0 || file_ofs > file_length (file)) {
+            lock_release(&file_lock);
+            goto done;
+        }
+        lock_release(&file_lock);
 
-		if (file_ofs < 0 || file_ofs > file_length (file))
-			goto done;
+		lock_acquire(&file_lock);
 		file_seek (file, file_ofs);
+        lock_release(&file_lock);
 
-		if (file_read (file, &phdr, sizeof phdr) != sizeof phdr)
-			goto done;
+        lock_acquire(&file_lock);
+		if (file_read (file, &phdr, sizeof phdr) != sizeof phdr) {
+            lock_release(&file_lock);
+            goto done;
+        }
+        lock_release(&file_lock);
+			
 		file_ofs += sizeof phdr;
 		switch (phdr.p_type) {
 			case PT_NULL:
@@ -592,8 +616,6 @@ load (const char *file_name, struct intr_frame *if_) {
 		}
 	}
 
-    file_deny_write(file);
-    t->my_exec_file = file;
 
 	/* Set up stack. */
 	if (!setup_stack (if_))
@@ -641,12 +663,19 @@ load (const char *file_name, struct intr_frame *if_) {
     if_->R.rdi = argc;
     if_->R.rsi = if_->rsp + PTR_SIZE;
 
-	success = true;
+    lock_acquire(&file_lock);
+    file_deny_write(file);
+    lock_release(&file_lock);
 
+    t->my_exec_file = file;
+	success = true;
+    return success;
 done:
 	/* We arrive here whether the load is successful or not. */
     if(!success) {
+        lock_acquire(&file_lock);
         file_close(file);
+        lock_release(&file_lock);
     }
 	return success;
 }
@@ -725,7 +754,10 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
 
+    lock_acquire(&file_lock);
 	file_seek (file, ofs);
+    lock_release(&file_lock);
+
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
@@ -735,14 +767,18 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		/* Get a page of memory. */
 		uint8_t *kpage = palloc_get_page (PAL_USER);
-		if (kpage == NULL)
-			return false;
+		if (kpage == NULL){
+            return false;
+        }
 
 		/* Load this page. */
+        lock_acquire(&file_lock);
 		if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
+            lock_release(&file_lock);
 			palloc_free_page (kpage);
 			return false;
 		}
+        lock_release(&file_lock);
 		memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
 		/* Add the page to the process's address space. */

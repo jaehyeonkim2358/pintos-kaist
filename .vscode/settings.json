@@ -33,6 +33,9 @@
         "directory.h": "c",
         "syn-read.h": "c",
         "debug.h": "c",
-        "stddef.h": "c"
+        "stddef.h": "c",
+        "timer.h": "c",
+        "io.h": "c",
+        "intr-stubs.h": "c"
     }
 }

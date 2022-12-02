@@ -95,8 +95,9 @@ pml4e_walk (uint64_t *pml4e, const uint64_t va, int create) {
 uint64_t *
 pml4_create (void) {
 	uint64_t *pml4 = palloc_get_page (0);
-	if (pml4)
+	if (pml4) {
 		memcpy (pml4, base_pml4, PGSIZE);
+    }
 	return pml4;
 }
 

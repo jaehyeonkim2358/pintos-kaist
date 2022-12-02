@@ -10,6 +10,7 @@ __attribute__((always_inline))
 static __inline void lcr3(uint64_t val) {
 	__asm __volatile("movq %0, %%cr3" : : "r" (val));
 }
+// CR3 - 페이지 디렉터리의 물리 주소와 페이지 캐시에 관련된 기능을 설정
 
 __attribute__((always_inline))
 static __inline void lgdt(const struct desc_ptr *dtr) {

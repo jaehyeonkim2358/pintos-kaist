@@ -94,6 +94,7 @@ typedef int tid_t;
 struct child_list_elem {
     tid_t child_tid;
     enum thread_status child_status;
+    struct thread *child;
     int child_exit_status;
     struct semaphore wait_sema;
     struct list_elem elem;
@@ -114,12 +115,12 @@ struct thread {
     unsigned int holding_lock_count;    /* PROJECT 1 - Priority Scheduling */
     struct lock *waiting_lock;          /* PROJECT 1 - Priority Scheduling */
 
-    int process_status;                 /* PROJECT 2 - System Calls */
+    int exit_status;                    /* PROJECT 2 - System Calls */
     struct thread *parent_process;      /* PROJECT 2 - System Calls */
     struct list child_list;             /* PROJECT 2 - System Calls */
     struct file *fd_list[FDLIST_LEN];   /* PROJECT 2 - System Calls */
     struct file *my_exec_file;          /* PROJECT 2 - System Calls */
-    struct child_list_elem *my_info;
+    struct child_list_elem *my_info;    /* PROJECT 2 - System Calls */
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -185,4 +186,5 @@ struct thread *thread_get_max(struct list *list);
 /* PROJECT 2 - System Calls */
 int destruction_req_contains(tid_t tid);
 void scan_ready_list();
+
 #endif /* threads/thread.h */
