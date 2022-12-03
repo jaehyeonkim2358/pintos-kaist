@@ -223,7 +223,7 @@ __do_fork (void **aux) {
     /* Project2: System Calls */
     
     for(int i = 0; i < FDLIST_LEN; i++) {
-        struct file *p_f = (parent->fd_list)[i];
+        struct file *p_f = (parent->fd_table)[i];
         if(p_f == NULL) continue;
 
         struct file *dup_f;
@@ -233,7 +233,7 @@ __do_fork (void **aux) {
         if(dup_f == NULL) {
             goto error;
         }
-        (current->fd_list)[i] = dup_f;
+        (current->fd_table)[i] = dup_f;
     }
     
     
@@ -369,7 +369,7 @@ process_exit (void) {
     /* fd table의 파일 닫기 */
     lock_acquire(&file_lock);
     for(int i = 0; i < FDLIST_LEN; i++) {
-        file_close(curr->fd_list[i]);
+        file_close(curr->fd_table[i]);
     }
     lock_release(&file_lock);
 
