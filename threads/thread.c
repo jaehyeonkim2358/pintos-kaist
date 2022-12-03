@@ -451,7 +451,7 @@ init_thread (struct thread *t, const char *name, int priority) {
     t->my_exec_file = NULL;
     list_init(&t->child_list);
     t->exit_status = 0;
-    for(int i = 0; i < FDLIST_LEN; i++) { t->fd_list[i] = NULL; }
+    for(int i = 0; i < FDLIST_LEN; i++) { t->fd_table[i] = NULL; }
 }
 
 bool

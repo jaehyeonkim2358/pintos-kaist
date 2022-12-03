@@ -47,10 +47,10 @@ void syscall_handler (struct intr_frame *);
 
 bool address_check(char *ptr);
 
-int fd_list_get_fd(struct file *_file);
-struct file *fd_list_get_file(int fd);
-int fd_list_insert(struct file *_file);
-void fd_list_remove(int fd);
+int fd_table_get_fd(struct file *_file);
+struct file *fd_table_get_file(int fd);
+int fd_table_insert(struct file *_file);
+void fd_table_remove(int fd);
 
 struct system_call syscall_list[] = {
         {SYS_HALT, halt_handler}, 
@@ -184,9 +184,9 @@ void open_handler(struct intr_frame *f) {
 
     if(o_file == NULL) return;
 
-    fd = fd_list_insert(o_file);
+    fd = fd_table_insert(o_file);
 
-    /* fd_list에 저장 실패시 file close */
+    /* fd_table에 저장 실패시 file close */
     if(fd == -1) {
         lock_acquire(&file_lock);
         file_close(o_file);
@@ -197,7 +197,7 @@ void open_handler(struct intr_frame *f) {
 
 void filesize_handler(struct intr_frame *f) {
     int fd = F_ARG1;
-    struct file *file_ = fd_list_get_file(fd);
+    struct file *file_ = fd_table_get_file(fd);
     if(file_ == NULL) return;
 
     lock_acquire(&file_lock);
@@ -214,7 +214,7 @@ void read_handler(struct intr_frame *f) {
     if(fd == 1) kern_exit(f, -1);
     if(!address_check(buffer)) kern_exit(f, -1);
 
-    struct file *file_ = fd_list_get_file(fd);
+    struct file *file_ = fd_table_get_file(fd);
     if(file_ == NULL) return;
 
     lock_acquire(&file_lock);
@@ -246,7 +246,7 @@ void write_handler(struct intr_frame *f) {
             size = 0;
         }
     } else {
-        struct file *file_ = fd_list_get_file(fd);
+        struct file *file_ = fd_table_get_file(fd);
         if(file_ == NULL) return;
         
         lock_acquire(&file_lock);
@@ -262,7 +262,7 @@ void seek_handler(struct intr_frame *f) {
     unsigned position = (unsigned)F_ARG2;
     struct file *getfile = NULL;
 
-    getfile = fd_list_get_file(fd);
+    getfile = fd_table_get_file(fd);
     if(getfile == NULL) kern_exit(f, -1);
 
     lock_acquire(&file_lock);
@@ -272,7 +272,7 @@ void seek_handler(struct intr_frame *f) {
 
 void tell_handler(struct intr_frame *f) {
     int fd = F_ARG1;
-    struct file *tell_file = fd_list_get_file(fd);
+    struct file *tell_file = fd_table_get_file(fd);
     if(tell_file == NULL) kern_exit(f, -1);
 
     lock_acquire(&file_lock);
@@ -282,14 +282,14 @@ void tell_handler(struct intr_frame *f) {
 
 void close_handler(struct intr_frame *f) {
     int fd = F_ARG1;
-    struct file *file_ = fd_list_get_file(fd);
+    struct file *file_ = fd_table_get_file(fd);
     if(file_ == NULL) return;
 
     lock_acquire(&file_lock);
     file_close(file_);
     lock_release(&file_lock);
 
-    fd_list_remove(fd);
+    fd_table_remove(fd);
 }
 
 
@@ -359,10 +359,10 @@ kern_exit(struct intr_frame *f, int status) {
 
 
 int
-fd_list_get_fd(struct file *_file) {
+fd_table_get_fd(struct file *_file) {
     for(int i = 3; i < FDLIST_LEN; i++) {
-        if((thread_current()->fd_list)[i] == NULL) continue;
-        if((thread_current()->fd_list)[i] == _file) {
+        if((thread_current()->fd_table)[i] == NULL) continue;
+        if((thread_current()->fd_table)[i] == _file) {
             return i;
         }
     }
@@ -371,10 +371,10 @@ fd_list_get_fd(struct file *_file) {
 
 
 int
-fd_list_insert(struct file *_file) {
+fd_table_insert(struct file *_file) {
     for(int i = 3; i < FDLIST_LEN; i++) {
-        if((thread_current()->fd_list)[i] == NULL) {
-            (thread_current()->fd_list)[i] = _file;
+        if((thread_current()->fd_table)[i] == NULL) {
+            (thread_current()->fd_table)[i] = _file;
             return i;
         }
     }
@@ -383,14 +383,14 @@ fd_list_insert(struct file *_file) {
 
 
 void
-fd_list_remove(int fd) {
+fd_table_remove(int fd) {
     if(fd < 3 || fd >= FDLIST_LEN) return;
-    (thread_current()->fd_list)[fd] = NULL;
+    (thread_current()->fd_table)[fd] = NULL;
 }
 
 
 struct file *
-fd_list_get_file(int fd) {
+fd_table_get_file(int fd) {
     if(fd < 3 || fd >= FDLIST_LEN) return NULL;
-    return (thread_current()->fd_list)[fd];
+    return (thread_current()->fd_table)[fd];
 }

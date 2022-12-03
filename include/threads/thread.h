@@ -118,7 +118,7 @@ struct thread {
     int exit_status;                    /* PROJECT 2 - System Calls */
     struct thread *parent_process;      /* PROJECT 2 - System Calls */
     struct list child_list;             /* PROJECT 2 - System Calls */
-    struct file *fd_list[FDLIST_LEN];   /* PROJECT 2 - System Calls */
+    struct file *fd_table[FDLIST_LEN];   /* PROJECT 2 - System Calls */
     struct file *my_exec_file;          /* PROJECT 2 - System Calls */
     struct child_list_elem *my_info;    /* PROJECT 2 - System Calls */
 #ifdef USERPROG
@@ -185,6 +185,6 @@ struct thread *thread_get_max(struct list *list);
 
 /* PROJECT 2 - System Calls */
 int destruction_req_contains(tid_t tid);
-void scan_ready_list();
+void scan_ready_list();     // <debug> ready_list 출력 함수
 
 #endif /* threads/thread.h */
