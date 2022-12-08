@@ -6,6 +6,13 @@
 #define PTR_SIZE 8
 #define EXIT_FALSE -2
 
+struct lazy_args {
+    struct file *file;
+    off_t file_ofs;
+    size_t read_bytes;
+    size_t zero_bytes;
+};
+
 tid_t process_create_initd (const char *file_name);
 tid_t process_fork (const char *name, struct intr_frame *if_);
 int process_exec (void *f_name);

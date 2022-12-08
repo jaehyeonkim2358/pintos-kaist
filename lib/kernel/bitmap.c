@@ -288,7 +288,14 @@ bitmap_scan (const struct bitmap *b, size_t start, size_t cnt, bool value) {
    If there is no such group, returns BITMAP_ERROR.
    If CNT is zero, returns 0.
    Bits are set atomically, but testing bits is not atomic with
-   setting them. */
+   setting them. 
+
+   비트맵 B에서, START부터 시작해서 가장 처음으로 나타나는, 값이 VALUE로 설정된 CNT개의 연속된 비트의 그룹을 찾아
+   그 그룹의 모든(CNT개의) 비트 값을 !VALUE로 전환하고, 그 그룹의 첫번째 비트의 인덱스를 return 합니다.
+   만약 조건에 맞는 그룹이 없다면, BITMAP_ERROR를 return 합니다.
+   만약 CNT가 0이라면, 0을 return 합니다.
+   비트는 원자적으로 설정 되지만, testing bits는 그렇지 않습니다? <- 뭔소린지 모르겠음
+*/
 size_t
 bitmap_scan_and_flip (struct bitmap *b, size_t start, size_t cnt, bool value) {
 	size_t idx = bitmap_scan (b, start, cnt, value);

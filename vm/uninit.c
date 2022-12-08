@@ -10,6 +10,7 @@
 
 #include "vm/vm.h"
 #include "vm/uninit.h"
+#include "threads/malloc.h"
 
 static bool uninit_initialize (struct page *page, void *kva);
 static void uninit_destroy (struct page *page);
@@ -24,8 +25,7 @@ static const struct page_operations uninit_ops = {
 
 /* DO NOT MODIFY this function */
 void
-uninit_new (struct page *page, void *va, vm_initializer *init,
-		enum vm_type type, void *aux,
+uninit_new (struct page *page, void *va, vm_initializer *init, enum vm_type type, void *aux,
 		bool (*initializer)(struct page *, enum vm_type, void *)) {
 	ASSERT (page != NULL);
 
@@ -62,7 +62,12 @@ uninit_initialize (struct page *page, void *kva) {
  * PAGE will be freed by the caller. */
 static void
 uninit_destroy (struct page *page) {
-	struct uninit_page *uninit UNUSED = &page->uninit;
+	struct uninit_page *uninit = &page->uninit;
 	/* TODO: Fill this function.
 	 * TODO: If you don't have anything to do, just return. */
+    if(page->frame) free(page->frame);
+    // lock_acquire(&file_lock);
+    // file_close(((struct lazy_args *)uninit->aux)->file);
+    // lock_release(&file_lock);
+    free(uninit->aux);
 }
