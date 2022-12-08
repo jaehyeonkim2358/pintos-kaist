@@ -37,6 +37,11 @@
         "timer.h": "c",
         "io.h": "c",
         "intr-stubs.h": "c",
-        "synch.h": "c"
+        "synch.h": "c",
+        "inspect.h": "c",
+        "vm.h": "c",
+        "hash.h": "c",
+        "uninit.h": "c",
+        "main.h": "c"
     }
 }

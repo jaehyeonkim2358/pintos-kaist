@@ -18,6 +18,7 @@
 #include "filesys/file.h"
 #include "threads/vaddr.h"
 #include "threads/palloc.h"
+#include "vm/vm.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -53,7 +54,7 @@ int fd_table_insert(struct file *_file);
 void fd_table_remove(int fd);
 
 struct system_call syscall_list[] = {
-        {SYS_HALT, halt_handler}, 
+        {SYS_HALT, halt_handler},
         {SYS_EXIT, exit_handler},
         {SYS_FORK, fork_handler},
         {SYS_EXEC, exec_handler},
@@ -213,6 +214,7 @@ void read_handler(struct intr_frame *f) {
     if(fd < 0 || FDLIST_LEN <= fd) kern_exit(f, -1);
     if(fd == 1) kern_exit(f, -1);
     if(!address_check(buffer)) kern_exit(f, -1);
+    if(!address_check(buffer+size-1)) kern_exit(f, -1);
 
     struct file *file_ = fd_table_get_file(fd);
     if(file_ == NULL) return;
@@ -232,6 +234,7 @@ void write_handler(struct intr_frame *f) {
     if(fd <= 0) return;
 
     if(!address_check(buffer)) kern_exit(f, -1);
+    if(!address_check(buffer+size-1)) kern_exit(f, -1);
 
     if(fd == 1) {
         if(size > 0) {
@@ -343,7 +346,7 @@ void umount_handler(struct intr_frame *f) {
 bool
 address_check(char *ptr) {
     struct thread *curr = thread_current();
-    if(is_kernel_vaddr(ptr) || pml4_get_page(curr->pml4, ptr) == NULL) {
+    if(spt_find_page(&curr->spt, ptr) == NULL) {
         return false;
     }
     return true;

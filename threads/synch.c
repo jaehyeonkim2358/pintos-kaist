@@ -180,6 +180,30 @@ lock_init (struct lock *lock) {
 	sema_init (&lock->semaphore, 1);
 }
 
+
+int
+donate_priority(struct thread *holder) {
+    ASSERT(holder != NULL);
+
+    struct thread *cur = NULL;
+    int old_priority = ORI_PRI_DEFAULT;
+
+    if(holder->ori_priority == ORI_PRI_DEFAULT) {
+        holder->ori_priority = holder->priority;        // holder   : 양도 전, 자신의 우선순위를 저장 (최초 lock 획득 시)
+    }
+    old_priority = holder->priority;                    // donator  : 양도 전, holder의 우선순위를 저장
+    holder->priority = thread_get_priority();           // 우선순위 양도 (현재 lock의 holder)
+
+    /* 우선순위 양도 (또 다른 lock을 얻기위해 대기하는 holder들) */
+    cur = holder;
+    while(cur->waiting_lock != NULL) {
+        cur = cur->waiting_lock->holder;
+        cur->priority = thread_get_priority();
+    }
+
+    return old_priority;
+}
+
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -222,28 +246,6 @@ lock_acquire (struct lock *lock) {
     thread_current()->holding_lock_count += 1;             // lock 획득에 성공. 해당 쓰레드가 hold한 lock의 수 증가
 }
 
-int
-donate_priority(struct thread *holder) {
-    ASSERT(holder != NULL);
-
-    struct thread *cur = NULL;
-    int old_priority = ORI_PRI_DEFAULT;
-
-    if(holder->ori_priority == ORI_PRI_DEFAULT) {
-        holder->ori_priority = holder->priority;        // holder   : 양도 전, 자신의 우선순위를 저장 (최초 lock 획득 시)
-    }
-    old_priority = holder->priority;                    // donator  : 양도 전, holder의 우선순위를 저장
-    holder->priority = thread_get_priority();           // 우선순위 양도 (현재 lock의 holder)
-
-    /* 우선순위 양도 (또 다른 lock을 얻기위해 대기하는 holder들) */
-    cur = holder;
-    while(cur->waiting_lock != NULL) {
-        cur = cur->waiting_lock->holder;
-        cur->priority = thread_get_priority();
-    }
-
-    return old_priority;
-}
 
 /* Tries to acquires LOCK and returns true if successful or false
    on failure.  The lock must not already be held by the current
@@ -261,7 +263,6 @@ lock_try_acquire (struct lock *lock) {
 	success = sema_try_down (&lock->semaphore);
 	if (success)
 		lock->holder = thread_current ();
-        // lock->holder_priority = thread_get_priority();
 	return success;
 }
 

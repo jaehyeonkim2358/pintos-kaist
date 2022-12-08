@@ -118,6 +118,11 @@ resolve_area_info (struct area *base_mem, struct area *ext_mem) {
  * All the pages are manged by this allocator, even include code page.
  * Basically, give half of memory to kernel, half to user.
  * We push base_mem portion to the kernel as much as possible.
+ * 
+ * pool을 채워줍니다.
+ * code page를 포함해서, 모든 page들은 전부 이 할당기에 의해 관리됩니다.
+ * 기본적으로, 메모리의 절반은 kernel에게, 다른 절반은 user에게 주어집니다.
+ * 우리는 BASE_MEM 부분을 최대한 kernel에 push합니다.
  */
 static void
 populate_pools (struct area *base_mem, struct area *ext_mem) {
