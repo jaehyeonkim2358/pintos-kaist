@@ -47,7 +47,7 @@ void syscall_handler (struct intr_frame *);
 #define F_ARG6 f->R.r9
 
 bool address_check(bool write, char *ptr);
-
+bool mmap_check(char *ptr, size_t length, off_t offset);
 int fd_table_get_fd(struct file *_file);
 struct file *fd_table_get_file(int fd);
 int fd_table_insert(struct file *_file);
@@ -296,13 +296,35 @@ void close_handler(struct intr_frame *f) {
 }
 
 
-/* PROJECT3 ~~~~~ */
+/* PROJECT3 */
 void mmap_handler(struct intr_frame *f) {
+    void *addr = (void *)F_ARG1;
+    size_t length = (size_t)F_ARG2;
+    int writable = (int)F_ARG3;
+    int fd = (int)F_ARG4;
+    off_t offset = (off_t)F_ARG5;
+    void *result = NULL;
+    struct file *file_ = fd_table_get_file(fd);
 
+    if(length == 0) kern_exit(f, -1);
+    if(file_ == NULL) kern_exit(f, -1);
+    if(file_length(file_) == 0) kern_exit(f, -1);
+
+    if(mmap_check(addr, length, offset)) {
+        lock_acquire(&file_lock);
+        result = do_mmap(addr, length, writable, file_, offset);
+        lock_release(&file_lock);
+    }
+
+    F_RAX = result;
 }
 
 void mnumap_handler(struct intr_frame *f) {
-
+    void *addr = (void *)F_ARG1;
+    if(!address_check(false, addr)) kern_exit(f, -1);
+    if(addr == pg_round_down(addr)) {
+        do_munmap(addr);
+    }
 }
 
 void chdir_handler(struct intr_frame *f) {
@@ -342,11 +364,15 @@ void umount_handler(struct intr_frame *f) {
 }
 
 
-/* 여기서 부터는 system call handler 아님 */
+/* system call handler helper */
 bool
 address_check(bool write, char *ptr) {
     struct thread *curr = thread_current();
     struct page *p = NULL;
+    
+    if(ptr == NULL) {
+        return false;
+    }
 
     p = spt_find_page(&curr->spt, ptr);
     if(p == NULL) {
@@ -356,6 +382,27 @@ address_check(bool write, char *ptr) {
             return false;
         }
     }
+    return true;
+}
+
+bool
+mmap_check(char *ptr, size_t length, off_t offset) {
+    struct thread *curr = thread_current();
+    struct page *p = NULL;
+    
+    if(offset % PGSIZE != 0) return false;
+    if(ptr != pg_round_down(ptr)) return false;
+    if(is_kernel_vaddr(ptr)) return false;
+    if(is_kernel_vaddr(ptr-length)) return false;
+
+    while(length > 0) {
+        if(spt_find_page(&curr->spt, ptr) != NULL) {
+            return false;
+        }
+        length -= length > PGSIZE ? PGSIZE : length;
+        ptr -= PGSIZE;
+    }
+
     return true;
 }
 

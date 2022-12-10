@@ -37,6 +37,26 @@ page_get_type (struct page *page) {
 	}
 }
 
+/* 
+ * */
+enum vm_type
+page_get_union_type(struct page *page) {
+    enum vm_type type = page_get_type(page);
+    if(VM_TYPE (page->operations->type) != VM_UNINIT) {
+        switch(type){
+            case VM_ANON:
+                type = page->anon.type;
+                break;
+            case VM_FILE:
+                type = page->file.type;
+                break;
+            default:
+                break;
+        }
+    }
+    return type;
+}
+
 /* Helpers */
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
@@ -88,6 +108,11 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable, v
 	}
 err:
 	return false;
+}
+
+bool
+vm_alloc_stack_page(void *upage) {
+    return vm_alloc_page(VM_STACK | VM_ANON, upage, true);
 }
 
 /* Find VA from spt and return page. On error, return NULL. */
@@ -166,7 +191,7 @@ vm_stack_growth (void *addr) {
     struct supplemental_page_table *spt = &thread_current()->spt;
     addr = pg_round_down(addr);
     while(spt_find_page(spt, addr) == NULL) {
-        vm_alloc_page(VM_ANON | VM_STACK, addr, true);
+        vm_alloc_stack_page(addr);
         vm_claim_page(addr);
         addr += PGSIZE;
     }
@@ -285,23 +310,39 @@ page_duplicate(struct supplemental_page_table *spt, struct page *src) {
     struct page *dst;
     bool success = true;
     
-    type = page_get_type(src);
+    type = page_get_union_type(src);
     upage = src->va;
     writable = src->writable;
     init = src->uninit.init;
 
-    // src 페이지에 aux가 존재할 경우 할당
-    if(src->uninit.aux != NULL) {
-        struct lazy_args *old_aux = (struct lazy_args *)src->uninit.aux;
-        struct lazy_args *new_aux = malloc(sizeof(struct lazy_args));
+    // src의 operation에 따른 복사 대상 aux를 다르게 참조
+    void *parent_eevee_aux = NULL;
+    switch(VM_TYPE(src->operations->type)) {
+        case VM_UNINIT:
+            parent_eevee_aux = src->uninit.aux;
+            break;
+        case VM_ANON:
+            parent_eevee_aux = src->anon.aux;
+            break;
+        case VM_FILE:
+            parent_eevee_aux = src->file.aux;
+            break;
+        default:
+            PANIC("page_duplicate() : unexpected type %d", type);
+            break;
+    }
 
-        if(new_aux == NULL) return false;
+    if(parent_eevee_aux != NULL) {
+        struct lazy_args *parent_aux = (struct lazy_args *)parent_eevee_aux;
+        struct lazy_args *child_aux = malloc(sizeof(struct lazy_args));
 
-        new_aux->file = old_aux->file;
-        new_aux->file_ofs = old_aux->file_ofs;
-        new_aux->read_bytes = old_aux->read_bytes;
-        new_aux->zero_bytes = old_aux->zero_bytes;
-        aux = (void *)new_aux;
+        if(child_aux == NULL) return false;
+
+        child_aux->file = parent_aux->file;
+        child_aux->file_ofs = parent_aux->file_ofs;
+        child_aux->read_bytes = parent_aux->read_bytes;
+        child_aux->zero_bytes = parent_aux->zero_bytes;
+        aux = (void *)child_aux;
     }
 
     if(!vm_alloc_page_with_initializer(type, upage, writable, init, aux)) {
@@ -313,7 +354,7 @@ page_duplicate(struct supplemental_page_table *spt, struct page *src) {
         return false;
     }
 
-    if(src->frame != NULL) {
+    if(VM_TYPE (src->operations->type) != VM_UNINIT) {
         success = vm_do_claim_page(dst);
         if(success) {
             memcpy(dst->frame->kva, src->frame->kva, PGSIZE);
