@@ -46,7 +46,7 @@ void syscall_handler (struct intr_frame *);
 #define F_ARG5 f->R.r8
 #define F_ARG6 f->R.r9
 
-bool address_check(char *ptr);
+bool address_check(bool write, char *ptr);
 
 int fd_table_get_fd(struct file *_file);
 struct file *fd_table_get_file(int fd);
@@ -132,7 +132,7 @@ void exec_handler(struct intr_frame *f) {
     char *file_name = (char *)F_ARG1;
     char *new_fname;
 
-    if(!address_check(file_name)) kern_exit(f, -1);
+    if(!address_check(false, file_name)) kern_exit(f, -1);
 
     new_fname = palloc_get_page (0);
     strlcpy(new_fname, file_name, PGSIZE);
@@ -151,7 +151,7 @@ void create_handler(struct intr_frame *f) {
     off_t initial_size = (off_t)F_ARG2;
 
     if(file_name == NULL) kern_exit(f, -1);
-    if(!address_check(file_name)) kern_exit(f, -1);
+    if(!address_check(false, file_name)) kern_exit(f, -1);
     
     lock_acquire(&file_lock);
     F_RAX = filesys_create(file_name, initial_size);
@@ -177,7 +177,7 @@ void open_handler(struct intr_frame *f) {
     int fd = -1;
     
     if(file_name == NULL) kern_exit(f, -1);
-    if(!address_check(file_name)) kern_exit(f, -1);
+    if(!address_check(false, file_name)) kern_exit(f, -1);
 
     lock_acquire(&file_lock);
     o_file = filesys_open(file_name);
@@ -213,8 +213,8 @@ void read_handler(struct intr_frame *f) {
 
     if(fd < 0 || FDLIST_LEN <= fd) kern_exit(f, -1);
     if(fd == 1) kern_exit(f, -1);
-    if(!address_check(buffer)) kern_exit(f, -1);
-    if(!address_check(buffer+size-1)) kern_exit(f, -1);
+    if(!address_check(true, buffer)) kern_exit(f, -1);
+    if(!address_check(true, buffer+size-1)) kern_exit(f, -1);
 
     struct file *file_ = fd_table_get_file(fd);
     if(file_ == NULL) return;
@@ -233,8 +233,8 @@ void write_handler(struct intr_frame *f) {
 
     if(fd <= 0) return;
 
-    if(!address_check(buffer)) kern_exit(f, -1);
-    if(!address_check(buffer+size-1)) kern_exit(f, -1);
+    if(!address_check(false, buffer)) kern_exit(f, -1);
+    if(!address_check(false, buffer+size-1)) kern_exit(f, -1);
 
     if(fd == 1) {
         if(size > 0) {
@@ -344,10 +344,17 @@ void umount_handler(struct intr_frame *f) {
 
 /* 여기서 부터는 system call handler 아님 */
 bool
-address_check(char *ptr) {
+address_check(bool write, char *ptr) {
     struct thread *curr = thread_current();
-    if(spt_find_page(&curr->spt, ptr) == NULL) {
+    struct page *p = NULL;
+
+    p = spt_find_page(&curr->spt, ptr);
+    if(p == NULL) {
         return false;
+    } else {
+        if(write && !p->writable) {
+            return false;
+        }
     }
     return true;
 }
