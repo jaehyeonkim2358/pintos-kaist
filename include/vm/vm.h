@@ -46,10 +46,11 @@ struct page {
 	const struct page_operations *operations;
 	void *va;              /* Address in terms of user space */
 	struct frame *frame;   /* Back reference for frame */
-    struct hash_elem hash_elem;     /* PROJECT3: Virtual Memeory */
-    bool writable;
 
 	/* Your implementation */
+    struct hash_elem hash_elem;     /* PROJECT3: Virtual Memeory */
+    bool writable;
+    void *mapping_address;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -110,6 +111,7 @@ bool vm_try_handle_fault (struct intr_frame *f, void *addr, bool user,
 	vm_alloc_page_with_initializer ((type), (upage), (writable), NULL, NULL)
 bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 		bool writable, vm_initializer *init, void *aux);
+bool vm_alloc_stack_page(void *upage);          /* Project3: Virtual Memeory */
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);

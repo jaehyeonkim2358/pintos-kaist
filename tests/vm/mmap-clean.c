@@ -44,8 +44,10 @@ test_main (void)
       || memcmp (buffer + strlen (overwrite), sample + strlen (overwrite),
                  strlen (sample) - strlen (overwrite))) 
     {
-      if (!memcmp (buffer, sample, strlen (sample)))
+      if (!memcmp (buffer, sample, strlen (sample))) {
+        msg("strlen (sample) = %d\n [buffer] \n%s\n[sample] \n%s\n\n", strlen (sample), buffer, sample);
         fail ("munmap wrote back clean page");
+      }
       else
         fail ("read surprising data from file"); 
     }

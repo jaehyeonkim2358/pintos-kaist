@@ -854,12 +854,10 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
     if(!file_lock_holder) lock_acquire(&file_lock);
-
     file_seek(file, ofs);
     if (file_read (file, page->frame->kva, read_bytes) != (int) read_bytes) {
         success = false;
     }
-
     if(!file_lock_holder) lock_release(&file_lock);
     
     if(success) {
@@ -932,7 +930,7 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-    if(vm_alloc_page(VM_STACK | VM_ANON, stack_bottom, true)) {
+    if(vm_alloc_stack_page(stack_bottom)) {
         success = vm_claim_page(stack_bottom);
         if(success) {
             if_->rsp = USER_STACK;
