@@ -42,6 +42,8 @@
         "vm.h": "c",
         "hash.h": "c",
         "uninit.h": "c",
-        "main.h": "c"
+        "main.h": "c",
+        "cksum.h": "c",
+        "arc4.h": "c"
     }
 }

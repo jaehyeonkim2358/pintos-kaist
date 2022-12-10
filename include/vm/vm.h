@@ -48,8 +48,6 @@ struct page {
 	struct frame *frame;   /* Back reference for frame */
     struct hash_elem hash_elem;     /* PROJECT3: Virtual Memeory */
     bool writable;
-    bool user;
-    bool not_present;
 
 	/* Your implementation */
 

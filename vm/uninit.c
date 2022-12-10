@@ -66,8 +66,5 @@ uninit_destroy (struct page *page) {
 	/* TODO: Fill this function.
 	 * TODO: If you don't have anything to do, just return. */
     if(page->frame) free(page->frame);
-    // lock_acquire(&file_lock);
-    // file_close(((struct lazy_args *)uninit->aux)->file);
-    // lock_release(&file_lock);
     free(uninit->aux);
 }

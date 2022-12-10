@@ -856,14 +856,14 @@ lazy_load_segment (struct page *page, void *aux) {
     if(!file_lock_holder) lock_acquire(&file_lock);
 
     file_seek(file, ofs);
-    if (file_read (file, page->va, read_bytes) != (int) read_bytes) {
+    if (file_read (file, page->frame->kva, read_bytes) != (int) read_bytes) {
         success = false;
     }
 
     if(!file_lock_holder) lock_release(&file_lock);
     
     if(success) {
-        memset (page->va + read_bytes, 0, zero_bytes);
+        memset (page->frame->kva + read_bytes, 0, zero_bytes);
     }
     
     return success;

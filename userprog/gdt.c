@@ -117,6 +117,6 @@ gdt_init (void) {
 			"pushq %%rax\n"
 			"lretq\n"
 			"1:\n" :: "b" (SEL_KCSEG):"cc","memory");
-	/* Kill the local descriptor table */
+	/*  the local descriptor table */
 	lldt (0);
 }

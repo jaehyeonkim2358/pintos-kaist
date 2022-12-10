@@ -49,7 +49,7 @@ void spt_destructor(struct hash_elem *e, void *aux);
  * `vm_alloc_page`.
  * 
  * inintializer와 함께 페이지를 만드세요.
- * 만약 page를 생성하고싶다면, 직접 생성하지 말고 이 함수나 'vm_alloc_page'함수를 이용하세요
+ * page 생성은 직접 하지 말고 이 함수나 'vm_alloc_page'을 이용하세요!
  *  */
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable, vm_initializer *init, void *aux) {
@@ -63,21 +63,27 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable, v
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
         struct page *new_page = malloc(sizeof(struct page));
+        bool (*initializer)(struct page *, enum vm_type, void *kva);
 
         if(new_page == NULL) {
             goto err;
         }
         
-        if(VM_TYPE(type) == VM_ANON) {
-            uninit_new(new_page, upage, init, type, aux, anon_initializer);
-        } else if(VM_TYPE(type) == VM_FILE) {
-            uninit_new(new_page, upage, init, type, aux, file_backed_initializer);
-        } else {
-            PANIC("VM_TYPE: %d", type);
+        switch(VM_TYPE(type)){
+            case VM_ANON:
+                initializer = anon_initializer;
+                break;
+            case VM_FILE:
+                initializer = file_backed_initializer;
+                break;
+            default:
+                PANIC("vm_alloc_page_with_initializer() : unexpected type %d", type);
+                break;
         }
+        
+        uninit_new(new_page, upage, init, type, aux, initializer);
         new_page->writable = writable;
         
-		/* TODO: Insert the page into the spt. */
         return spt_insert_page(spt, new_page);
 	}
 err:
@@ -91,8 +97,8 @@ spt_find_page (struct supplemental_page_table *spt, void *va) {
 	/* TODO: Fill this function. */
     struct hash_elem *e;
     struct page p;
-    va = pg_round_down(va);
-    p.va = va;
+
+    p.va = pg_round_down(va);
     e = hash_find(&spt->pages, &p.hash_elem);
     if(e != NULL) {
         result_page = hash_entry(e, struct page, hash_elem);
@@ -156,7 +162,14 @@ vm_get_frame (void) {
 
 /* Growing the stack. */
 static void
-vm_stack_growth (void *addr UNUSED) {
+vm_stack_growth (void *addr) {
+    struct supplemental_page_table *spt = &thread_current()->spt;
+    addr = pg_round_down(addr);
+    while(spt_find_page(spt, addr) == NULL) {
+        vm_alloc_page(VM_ANON | VM_STACK, addr, true);
+        vm_claim_page(addr);
+        addr += PGSIZE;
+    }
 }
 
 /* Handle the fault on write_protected page */
@@ -166,15 +179,33 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f, void *addr,
-		bool user, bool write, bool not_present) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+vm_try_handle_fault (struct intr_frame *f, void *addr, bool user, bool write, bool not_present) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
-    addr = pg_round_down(addr);
+
+    /* physical page는 존재하나, 
+       writable하지 않은 address에 write를 시도해서 일어난 fault인 경우, 
+       할당하지 않고 즉시 false를 반환한다. */
+    if((!not_present) && (write)) {
+        return false;
+    }
+
+    /* fault를 발생시킨 address가 Stack영역 주소 범위내의 주소임과 동시에,
+       rsp - 8 (return address 저장 후의 주소) 보다 주소값이 큰 경우
+       (Stack bottom ~ rsp 사이의 주소인 경우), Stack 영역을 신장시킨다.
+       address가 Stack영역의 범위내에 있지만 rsp보다 주소값이 작을 경우
+       (Stack bottom에서 부터의 길이가 rsp보다 멀리있는 영역의 주소인 경우),
+       잘못된 접근 이므로 즉시 false를 반환한다. */
+    if(USER_STACK_END < addr && addr <= USER_STACK) {
+        if(f->rsp - 8 <= addr) {
+            vm_stack_growth(addr);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     page = spt_find_page(spt, addr);
-    
     if(page == NULL) {
         return false;
     }
@@ -259,6 +290,7 @@ page_duplicate(struct supplemental_page_table *spt, struct page *src) {
     writable = src->writable;
     init = src->uninit.init;
 
+    // src 페이지에 aux가 존재할 경우 할당
     if(src->uninit.aux != NULL) {
         struct lazy_args *old_aux = (struct lazy_args *)src->uninit.aux;
         struct lazy_args *new_aux = malloc(sizeof(struct lazy_args));
@@ -302,7 +334,7 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 void
 spt_destructor(struct hash_elem *e, void *aux UNUSED) {
     struct page *target = hash_entry (e, struct page, hash_elem);
-    
+
     vm_dealloc_page(target);
 }
 
