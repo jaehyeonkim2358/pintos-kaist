@@ -306,9 +306,7 @@ void mmap_handler(struct intr_frame *f) {
     void *result = NULL;
     struct file *file_ = fd_table_get_file(fd);
 
-    if(length == 0) kern_exit(f, -1);
     if(file_ == NULL) kern_exit(f, -1);
-    if(file_length(file_) == 0) kern_exit(f, -1);
 
     if(mmap_check(addr, length, offset)) {
         lock_acquire(&file_lock);
@@ -390,6 +388,7 @@ mmap_check(char *ptr, size_t length, off_t offset) {
     struct thread *curr = thread_current();
     struct page *p = NULL;
     
+    if(length == 0) return false;
     if(offset % PGSIZE != 0) return false;
     if(ptr != pg_round_down(ptr)) return false;
     if(is_kernel_vaddr(ptr)) return false;

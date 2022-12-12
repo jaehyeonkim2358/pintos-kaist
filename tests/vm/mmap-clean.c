@@ -45,7 +45,6 @@ test_main (void)
                  strlen (sample) - strlen (overwrite))) 
     {
       if (!memcmp (buffer, sample, strlen (sample))) {
-        msg("strlen (sample) = %d\n [buffer] \n%s\n[sample] \n%s\n\n", strlen (sample), buffer, sample);
         fail ("munmap wrote back clean page");
       }
       else

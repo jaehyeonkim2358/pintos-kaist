@@ -135,6 +135,8 @@ page_fault (struct intr_frame *f) {
 	   be assured of reading CR2 before it changed). */
 	intr_enable ();
 
+    // /* Count page faults. */
+	page_fault_cnt++;
 
 	/* Determine cause. */
 	not_present = (f->error_code & PF_P) == 0;
@@ -152,8 +154,8 @@ page_fault (struct intr_frame *f) {
         kern_exit(f, -1);
     }
 
-	/* Count page faults. */
-	page_fault_cnt++;
+	// /* Count page faults. */
+	// page_fault_cnt++;
 
 	/* If the fault is true fault, show info and exit. */
 	printf ("Page fault at %p: %s error %s page in %s context.\n",

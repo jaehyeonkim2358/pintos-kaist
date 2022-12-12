@@ -899,6 +899,9 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		/* Set up aux to pass information to the lazy_load_segment. */
         struct lazy_args *la = malloc(sizeof(struct lazy_args));
+
+        ASSERT(la != NULL);
+
         *la = (struct lazy_args) {
             .file = file,
             .file_ofs = file_offset,

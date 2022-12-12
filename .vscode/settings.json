@@ -44,6 +44,10 @@
         "uninit.h": "c",
         "main.h": "c",
         "cksum.h": "c",
-        "arc4.h": "c"
+        "arc4.h": "c",
+        "disk.h": "c",
+        "stdbool.h": "c",
+        "bitmap.h": "c",
+        "anon.h": "c"
     }
 }

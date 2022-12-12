@@ -51,6 +51,7 @@ struct page {
     struct hash_elem hash_elem;     /* PROJECT3: Virtual Memeory */
     bool writable;
     void *mapping_address;
+    uint64_t *pml4;                 // page를 만든 thread의 pml4;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -68,6 +69,7 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+    struct hash_elem hash_elem;
 };
 
 /* The function table for page operations.
@@ -92,6 +94,9 @@ struct page_operations {
 struct supplemental_page_table {
     struct hash pages;
 };
+
+struct hash frame_table;
+struct lock frame_table_lock;
 
 #include "threads/thread.h"
 void supplemental_page_table_init (struct supplemental_page_table *spt);
@@ -119,5 +124,9 @@ enum vm_type page_get_type (struct page *page);
 /* Project3: Virtual Memeory */
 uint64_t page_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
+uint64_t frame_hash (const struct hash_elem *f_, void *aux UNUSED);
+bool frame_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
+void frame_table_init(void);
+void ft_remove_frame(struct frame *frame);
 
 #endif  /* VM_VM_H */
