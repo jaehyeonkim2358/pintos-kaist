@@ -5,6 +5,9 @@
 #include "threads/synch.h"
 #include "lib/kernel/hash.h"
 
+long long eviction_count;
+
+
 enum vm_type {
 	/* page not initialized */
 	VM_UNINIT = 0,
@@ -51,6 +54,7 @@ struct page {
     struct hash_elem hash_elem;     /* PROJECT3: Virtual Memeory */
     bool writable;
     void *mapping_address;
+    unsigned *file_holder_cnt;
     uint64_t *pml4;                 // page를 만든 thread의 pml4;
 
 	/* Per-type data are binded into the union.
@@ -96,7 +100,7 @@ struct supplemental_page_table {
 };
 
 struct hash frame_table;
-struct lock frame_table_lock;
+struct lock claim_lock;
 
 #include "threads/thread.h"
 void supplemental_page_table_init (struct supplemental_page_table *spt);
@@ -122,11 +126,14 @@ bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
 
 /* Project3: Virtual Memeory */
+enum vm_type page_get_union_type(struct page *page);
 uint64_t page_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
 uint64_t frame_hash (const struct hash_elem *f_, void *aux UNUSED);
 bool frame_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
 void frame_table_init(void);
+struct frame *ft_find_frame(void *kva);
+bool ft_insert_frame(struct frame *frame);
 void ft_remove_frame(struct frame *frame);
 
 #endif  /* VM_VM_H */

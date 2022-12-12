@@ -711,53 +711,32 @@ struct thread *thread_get_max(struct list *list) {
 }
 
 
-int
-destruction_req_contains(tid_t tid) {
-    struct list_elem *cur;
-    struct thread *target;
+// void
+// scan_ready_list() {
+//     enum intr_level old_level;
+//     enum thread_status old_status;
+//     struct thread *curr = running_thread();
+//     if(!is_thread(curr)) return;
 
-    if(!list_empty(&destruction_req)) {
-        cur = list_begin(&destruction_req);
+//     old_level = intr_disable();
 
-        while(cur != list_tail(&destruction_req)) {
-            target = list_entry(cur, struct thread, elem);
-            if(target->tid == tid) {
-                return target->exit_status;
-            }
-            cur = list_next(cur);
-        }
-    }
+//     old_status = curr->status;
+//     curr->status = THREAD_RUNNING;
 
-    return -2;
-}
+//     if(!list_empty(&ready_list)) {
+//         struct list_elem *cursor = list_begin(&ready_list);
+//         printf("[ ");
+//         while(cursor != list_end(&ready_list)) {
+//             struct thread *cur = list_entry(cursor, struct thread, elem);
+//             printf("(t-%2d, op=%d, hc=%d)", cur->tid, cur->ori_priority, cur->holding_lock_count);
+//             cursor = list_next(cursor);
+//             if(cursor != list_end(&ready_list)) {
+//                 printf(", ");
+//             }
+//         }
+//         printf(" ]\n");
+//     }
 
-
-void
-scan_ready_list() {
-    enum intr_level old_level;
-    enum thread_status old_status;
-    struct thread *curr = running_thread();
-    if(!is_thread(curr)) return;
-
-    old_level = intr_disable();
-
-    old_status = curr->status;
-    curr->status = THREAD_RUNNING;
-
-    if(!list_empty(&ready_list)) {
-        struct list_elem *cursor = list_begin(&ready_list);
-        printf("[ ");
-        while(cursor != list_end(&ready_list)) {
-            struct thread *cur = list_entry(cursor, struct thread, elem);
-            printf("(t-%2d, op=%d, hc=%d)", cur->tid, cur->ori_priority, cur->holding_lock_count);
-            cursor = list_next(cursor);
-            if(cursor != list_end(&ready_list)) {
-                printf(", ");
-            }
-        }
-        printf(" ]\n");
-    }
-
-    curr->status = old_status;
-    intr_set_level(old_level);
-}
+//     curr->status = old_status;
+//     intr_set_level(old_level);
+// }

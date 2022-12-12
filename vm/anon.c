@@ -23,7 +23,7 @@ size_t slot_cnt(void);
 #define SECTOR_PER_SLOT ((PGSIZE) / (DISK_SECTOR_SIZE))
 
 // anon_page의 멤버 disk_sector_t의 초기값
-#define SLOT_DEFAULTS -1
+#define SLOT_DEFAULTS (SLOT_CNT) + 1
 
 // 섹터 번호를 슬롯 번호로 바꿔준다.
 #define sector_to_slot(sec_no) ((disk_sector_t)((sec_no) / (SECTOR_PER_SLOT)))
@@ -31,6 +31,12 @@ size_t slot_cnt(void);
 // 슬롯 번호를 섹터 번호로 바꿔준다. disk와 관련된 함수 실행 시 사용한다.
 #define slot_to_sector(slot_no) ((disk_sector_t)((slot_no) * (SECTOR_PER_SLOT)))
 
+disk_sector_t salloc_get_multiple (size_t slot_cnt);
+disk_sector_t salloc_get_slot(void);
+void salloc_free_multiple(disk_sector_t slot_no, size_t slot_cnt);
+void salloc_free_slot(disk_sector_t slot_no);
+void write_to_swap_disk(disk_sector_t slot_no, void *upage);
+void read_to_swap_disk(disk_sector_t slot_no, void *upage);
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
@@ -56,7 +62,7 @@ vm_anon_init (void) {
 
 /* Initialize the file mapping */
 bool
-anon_initializer (struct page *page, enum vm_type type, void *kva) {
+anon_initializer (struct page *page, enum vm_type type, void *kva UNUSED) {
 	/* Set up the handler */
 	page->operations = &anon_ops;
 
@@ -178,6 +184,8 @@ anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
     struct frame *frame = page->frame;
     disk_sector_t slot_no = salloc_get_slot();
+    
+    ASSERT(slot_no != BITMAP_ERROR);
 
     ASSERT(frame != NULL);
 
@@ -190,7 +198,6 @@ anon_swap_out (struct page *page) {
     pml4_clear_page(page->pml4, page->va);
 
     // frame 연결관계 제거
-    frame->page = NULL;
     page->frame = NULL;
 
     return true;
@@ -221,7 +228,6 @@ anon_destroy (struct page *page) {
     }
 
     ft_remove_frame(frame);
-    frame->page = NULL;
     page->frame = NULL;
     free(frame);
         

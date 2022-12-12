@@ -850,9 +850,9 @@ lazy_load_segment (struct page *page, void *aux) {
     bool file_lock_holder = lock_held_by_current_thread(&file_lock);
     bool success = true;
 
-	/* TODO: Load the segment from the file */
-	/* TODO: This called when the first page fault occurs on address VA. */
-	/* TODO: VA is available when calling this function. */
+	/* Load the segment from the file */
+	/* This called when the first page fault occurs on address VA. */
+	/* VA is available when calling this function. */
     if(!file_lock_holder) lock_acquire(&file_lock);
     file_seek(file, ofs);
     if (file_read (file, page->frame->kva, read_bytes) != (int) read_bytes) {
@@ -898,7 +898,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* Set up aux to pass information to the lazy_load_segment. */
-        struct lazy_args *la = malloc(sizeof(struct lazy_args));
+        struct lazy_args *la = calloc(sizeof(struct lazy_args), 1);
 
         ASSERT(la != NULL);
 
