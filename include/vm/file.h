@@ -11,6 +11,7 @@ struct file_page {
     enum vm_type type;
     void *aux;
     void *mapping_address;
+    unsigned *file_holder_cnt;
 };
 
 void vm_file_init (void);

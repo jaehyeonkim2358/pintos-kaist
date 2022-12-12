@@ -32,15 +32,16 @@ vm_file_init (void) {
 
 /* Initialize the file backed page */
 bool
-file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
+file_backed_initializer (struct page *page, enum vm_type type, void *kva UNUSED) {
 	/* Set up the handler */
 	page->operations = &file_ops;
 
 	struct file_page *file_page = &page->file;
-    file_page->init = page->anon.init;
+    file_page->init = page->uninit.init;
     file_page->type = type;
-    file_page->aux = page->anon.aux;
+    file_page->aux = page->uninit.aux;
     file_page->mapping_address = page->mapping_address;
+    file_page->file_holder_cnt = page->file_holder_cnt;
     
     return true;
 }
@@ -68,15 +69,14 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page = &page->file;
-
     void *file_eevee_aux = file_page->aux;
+    
     if(file_eevee_aux != NULL) {
         struct lazy_args *file_aux = (struct lazy_args *)file_eevee_aux;
         struct file *mapped_file = file_aux->file;
         off_t mapped_offset = file_aux->file_ofs;
         size_t mapped_read_bytes = file_aux->read_bytes;
         size_t mapped_zero_bytes = file_aux->zero_bytes;
-        
         bool file_lock_holder = lock_held_by_current_thread(&file_lock);
 
         if(!file_lock_holder) lock_acquire(&file_lock);
@@ -85,6 +85,7 @@ file_backed_swap_in (struct page *page, void *kva) {
             return false;
         }
         if(!file_lock_holder) lock_release(&file_lock);
+
         memset (kva + mapped_read_bytes, 0, mapped_zero_bytes);
     }
     return true;
@@ -117,7 +118,6 @@ file_backed_swap_out (struct page *page) {
         pml4_clear_page(page->pml4, page->va);
     }
 
-    frame->page = NULL;
     page->frame = NULL;
 
 end:
@@ -136,23 +136,25 @@ file_backed_destroy (struct page *page) {
     }
 
     struct lazy_args *file_aux = (struct lazy_args *)file_eevee_aux;
-    struct file *mapped_file = file_aux->file;
     bool file_lock_holder = lock_held_by_current_thread(&file_lock);
 
     if(pml4_is_dirty(thread_current()->pml4, page->va)) {
         file_backed_write_back(file_eevee_aux, frame->kva);
     }
-    if(!file_lock_holder) lock_acquire(&file_lock);
-    file_close(mapped_file);
-    if(!file_lock_holder) lock_release(&file_lock);
+
+    if(--(file_page->file_holder_cnt) == 0) {
+        if(!file_lock_holder) lock_acquire(&file_lock);
+        file_close(file_aux->file);
+        free(file_page->file_holder_cnt);
+        if(!file_lock_holder) lock_release(&file_lock);
+    }
     
-    // 사용한 물리 메모리 영역 초기화
+    // 사용한 물리 메모리 영역 초기화 및 페이지 테이블에서 user virtual address 매핑 해제
     memset(frame->kva, 0, PGSIZE);
     pml4_clear_page(thread_current()->pml4, page->va);
 
     // frame의 연결관계 제거
     ft_remove_frame(frame);
-    frame->page = NULL;
     page->frame = NULL;
 
     // frame 구조체를 위해 할당된 메모리 해제
@@ -187,9 +189,10 @@ void *
 do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offset) {
     size_t read_length, zero_length;
 
-    read_length = length < file_length(file) ? length : file_length(file);
+    file = file_reopen(file);
+    read_length = length < (size_t)file_length(file) ? length : (size_t)file_length(file);
     zero_length = (read_length % PGSIZE == 0) ? 0 : PGSIZE - (read_length % PGSIZE);
-
+    
     if(!file_load_segment(file, offset, addr, read_length, zero_length, writable)) {
         return NULL;
     }
@@ -211,12 +214,14 @@ do_munmap (void *addr) {
         PANIC("do_munmap() : unexpected address %p", addr);
     }
 
+    lock_acquire(&claim_lock);
     while(target != NULL && target->file.mapping_address == addr) {
         hash_delete(&spt->pages, &target->hash_elem);
         vm_dealloc_page(target);
         buffer += PGSIZE;
         target = spt_find_page(spt, buffer);
     }
+    lock_release(&claim_lock);
 }
 
 
@@ -251,6 +256,8 @@ file_load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
     size_t file_offset = ofs;
     uint8_t *mapping_address = upage;
+    unsigned *file_holder_cnt = (unsigned *)malloc(sizeof(unsigned));
+    *file_holder_cnt = (read_bytes + zero_bytes) / PGSIZE;
 
 	while (read_bytes > 0 || zero_bytes > 0) {
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
@@ -258,7 +265,7 @@ file_load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
         struct lazy_args *la = malloc(sizeof(struct lazy_args));
         *la = (struct lazy_args) {
-            .file = file_reopen(file),
+            .file = file,
             .file_ofs = file_offset,
             .read_bytes = page_read_bytes,
             .zero_bytes = page_zero_bytes
@@ -270,6 +277,7 @@ file_load_segment (struct file *file, off_t ofs, uint8_t *upage,
         }
         struct page *p = spt_find_page(&thread_current()->spt, upage);
         p->mapping_address = mapping_address;
+        p->file_holder_cnt = file_holder_cnt;
 
         file_offset += page_read_bytes;
 		read_bytes -= page_read_bytes;

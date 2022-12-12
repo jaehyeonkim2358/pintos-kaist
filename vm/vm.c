@@ -22,6 +22,8 @@ vm_init (void) {
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
     frame_table_init();
+    lock_init(&claim_lock);
+    eviction_count = 0;
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -78,10 +80,10 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable, v
     
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
-		/* TODO: Create the page, fetch the initialier according to the VM type,
-		 * TODO: and then create "uninit" page struct by calling uninit_new. You
-		 * TODO: should modify the field after calling the uninit_new. */
-        struct page *new_page = malloc(sizeof(struct page));
+		/* Create the page, fetch the initialier according to the VM type,
+		 * and then create "uninit" page struct by calling uninit_new. You
+		 * should modify the field after calling the uninit_new. */
+        struct page *new_page = calloc(sizeof(struct page), 1);
         bool (*initializer)(struct page *, enum vm_type, void *kva);
 
         if(new_page == NULL) {
@@ -142,9 +144,8 @@ spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 }
 
 void
-spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+spt_remove_page (struct supplemental_page_table *spt UNUSED, struct page *page) {
 	vm_dealloc_page (page);
-	// return true;
 }
 
 
@@ -155,9 +156,7 @@ ft_find_frame(void *kva) {
     struct frame f;
 
     f.kva = kva;
-    lock_acquire(&frame_table_lock);
     e = hash_find(&frame_table, &f.hash_elem);
-    lock_release(&frame_table_lock);
     if(e != NULL) {
         result_frame = hash_entry(e, struct frame, hash_elem);
     }
@@ -169,24 +168,19 @@ ft_find_frame(void *kva) {
 bool
 ft_insert_frame(struct frame *frame) {
     int succ = false;
-    lock_acquire(&frame_table_lock);
     succ = hash_insert(&frame_table, &frame->hash_elem) == NULL;
-    lock_release(&frame_table_lock);
     return succ;
 }
 
 
 void
 ft_remove_frame(struct frame *frame) {
-    lock_acquire(&frame_table_lock);
     hash_delete(&frame_table, &frame->hash_elem);
-    lock_release(&frame_table_lock);
 }
 
 
 void
 frame_table_init(void) {
-    lock_init(&frame_table_lock);
     hash_init(&frame_table, frame_hash, frame_less, NULL);
 }
 
@@ -194,27 +188,38 @@ frame_table_init(void) {
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
+    eviction_count++;
+
 	struct frame *victim = NULL;
     struct hash_iterator ft_iter;
     struct frame *f;
     bool victim_is_dirty = true;
+    bool done = false;
 
-    lock_acquire(&frame_table_lock);
     hash_first (&ft_iter, &frame_table);
     while (hash_next (&ft_iter)) {
         f = hash_entry (hash_cur (&ft_iter), struct frame, hash_elem);
 
-        ASSERT(f->page != NULL);
+        if(f->page == NULL) {
+            if(!done) {
+                done = true;
+                victim = f;
+            }
+            continue;
+        }
 
         uint64_t *f_pml4 = f->page->pml4;
-
+        if(!is_user_vaddr(f->page->va)) continue;
+        if(pml4_get_page(f_pml4, f->page->va) == NULL) continue;
         if(pml4_is_accessed(f_pml4, f->page->va)) {
             pml4_set_accessed(f_pml4, f->page->va, false);
+            if(done) continue;
             if(victim_is_dirty && !pml4_is_dirty(f_pml4, f->page->va)) {
                 victim_is_dirty = false;
                 victim = f;
             }
         } else {
+            if(done) continue;
             victim_is_dirty = false;
             victim = f;
         }
@@ -222,7 +227,6 @@ vm_get_victim (void) {
         우선순위 1: f->page != accessed  | timer 알고리즘. 가장 최근까지도 접근하지 않은 페이지가 할당되어있음
         우선순위 2: f->page != dirty     | swap out해주지 않아도 되는 페이지가 할당되어있음  */
     }
-    lock_release(&frame_table_lock);
 
      /**
       * Frame table에서 매핑된 page와의 link를 끊을 frame을 찾아야 한다.
@@ -244,11 +248,9 @@ vm_get_victim (void) {
 static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim = vm_get_victim ();
-
     ASSERT(victim != NULL);
-    ASSERT(victim->page != NULL);
 
-    swap_out(victim->page);
+    if(victim->page != NULL) swap_out(victim->page);
     
 	return victim;
 }
@@ -298,7 +300,7 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f, void *addr, bool user, bool write, bool not_present) {
+vm_try_handle_fault (struct intr_frame *f, void *addr, bool user UNUSED, bool write, bool not_present) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
 
@@ -336,7 +338,10 @@ vm_try_handle_fault (struct intr_frame *f, void *addr, bool user, bool write, bo
         return false;
     }
 
-	return vm_do_claim_page (page);
+    lock_acquire(&claim_lock);
+    bool success = vm_do_claim_page (page);
+    lock_release(&claim_lock);
+	return success;
 }
 
 /* Free the page.
@@ -418,6 +423,9 @@ page_duplicate(struct supplemental_page_table *spt, struct page *src) {
     void *parent_eevee_aux = NULL;
     switch(VM_TYPE(src->operations->type)) {
         case VM_UNINIT:
+            if(page_get_type(src) == VM_FILE) {
+                return true;
+            }
             parent_eevee_aux = src->uninit.aux;
             init = src->uninit.init;
             break;
@@ -426,8 +434,7 @@ page_duplicate(struct supplemental_page_table *spt, struct page *src) {
             init = src->anon.init;
             break;
         case VM_FILE:
-            parent_eevee_aux = src->file.aux;
-            init = src->file.init;
+            return true;
             break;
         default:
             PANIC("page_duplicate() : unexpected type %d", type);
@@ -440,11 +447,7 @@ page_duplicate(struct supplemental_page_table *spt, struct page *src) {
 
         if(child_aux == NULL) return false;
 
-        if(VM_TYPE(src->operations->type) == VM_FILE) {
-            child_aux->file = file_reopen(parent_aux->file);
-        } else {
-            child_aux->file = parent_aux->file;
-        }
+        child_aux->file = parent_aux->file;
         child_aux->file_ofs = parent_aux->file_ofs;
         child_aux->read_bytes = parent_aux->read_bytes;
         child_aux->zero_bytes = parent_aux->zero_bytes;
@@ -473,7 +476,9 @@ page_duplicate(struct supplemental_page_table *spt, struct page *src) {
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
+    lock_acquire(&claim_lock);
     hash_clear(&spt->pages, spt_destructor);
+    lock_release(&claim_lock);
 }
 
 void

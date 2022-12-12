@@ -100,7 +100,7 @@ syscall_init (void) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f) {
-    ASSERT(0 <= F_RAX && F_RAX < SYSCALL_CNT);
+    ASSERT(F_RAX < SYSCALL_CNT);
 
     struct system_call syscall = syscall_list[F_RAX];
 
@@ -112,7 +112,7 @@ syscall_handler (struct intr_frame *f) {
 }
 
 /* PROJECT 2: SYSTEM CALLS */
-void halt_handler(struct intr_frame *f) {
+void halt_handler(struct intr_frame *f UNUSED) {
     power_off();
 }
 
@@ -314,7 +314,7 @@ void mmap_handler(struct intr_frame *f) {
         lock_release(&file_lock);
     }
 
-    F_RAX = result;
+    F_RAX = (uint64_t)result;
 }
 
 void mnumap_handler(struct intr_frame *f) {
@@ -325,39 +325,39 @@ void mnumap_handler(struct intr_frame *f) {
     }
 }
 
-void chdir_handler(struct intr_frame *f) {
+void chdir_handler(struct intr_frame *f UNUSED) {
 
 }
 
-void mkdir_handler(struct intr_frame *f) {
+void mkdir_handler(struct intr_frame *f UNUSED) {
 
 }
 
-void readdir_handler(struct intr_frame *f) {
+void readdir_handler(struct intr_frame *f UNUSED) {
     
 }
 
-void isdir_handler(struct intr_frame *f) {
+void isdir_handler(struct intr_frame *f UNUSED) {
     
 }
 
-void inumber_handler(struct intr_frame *f) {
+void inumber_handler(struct intr_frame *f UNUSED) {
     
 }
 
-void symlink_handler(struct intr_frame *f) {
+void symlink_handler(struct intr_frame *f UNUSED) {
     
 }
 
-void dup2_handler(struct intr_frame *f) {
+void dup2_handler(struct intr_frame *f UNUSED) {
     
 }
 
-void mount_handler(struct intr_frame *f) {
+void mount_handler(struct intr_frame *f UNUSED) {
     
 }
 
-void umount_handler(struct intr_frame *f) {
+void umount_handler(struct intr_frame *f UNUSED) {
     
 }
 
@@ -386,7 +386,6 @@ address_check(bool write, char *ptr) {
 bool
 mmap_check(char *ptr, size_t length, off_t offset) {
     struct thread *curr = thread_current();
-    struct page *p = NULL;
     
     if(length == 0) return false;
     if(offset % PGSIZE != 0) return false;

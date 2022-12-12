@@ -73,7 +73,6 @@ uninit_destroy (struct page *page) {
         pml4_clear_page(page->pml4, page->va);
 
         ft_remove_frame(frame);
-        frame->page = NULL;
         page->frame = NULL;
     }
 

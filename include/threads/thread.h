@@ -184,7 +184,6 @@ struct thread *thread_pop_max(struct list *list);
 struct thread *thread_get_max(struct list *list);
 
 /* PROJECT 2 - System Calls */
-int destruction_req_contains(tid_t tid);
-void scan_ready_list();     // <debug> ready_list 출력 함수
+// void scan_ready_list();     // <debug> ready_list 출력 함수
 
 #endif /* threads/thread.h */
