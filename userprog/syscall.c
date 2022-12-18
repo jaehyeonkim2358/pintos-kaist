@@ -330,7 +330,8 @@ void chdir_handler(struct intr_frame *f UNUSED) {
 }
 
 void mkdir_handler(struct intr_frame *f UNUSED) {
-
+    char *dir = (char *)F_ARG1;
+    
 }
 
 void readdir_handler(struct intr_frame *f UNUSED) {

@@ -5,6 +5,12 @@
         "vm.h": "c",
         "palloc.h": "c",
         "file.h": "c",
-        "malloc.h": "c"
+        "malloc.h": "c",
+        "fat.h": "c",
+        "filesys.h": "c",
+        "list.h": "c",
+        "inode.h": "c",
+        "*.inc": "c",
+        "directory.h": "c"
     }
 }

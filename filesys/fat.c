@@ -35,8 +35,6 @@ static struct cluster_map *cluster_map;
 
 void fat_boot_create (void);
 void fat_fs_init (void);
-bool fat_alloc_get_multiple(size_t cnt, disk_sector_t *sectorp);
-bool fat_alloc_get_clst(disk_sector_t *sectorp);
 
 void
 fat_init (void) {
@@ -202,6 +200,33 @@ fat_create_chain (cluster_t clst) {
     }
 
     return new_clst;
+}
+
+
+/* 클러스터 CLST 뒤에 COUNT개의 클러스터를 새로 할당받아 추가로 삽입합니다. */
+void
+fat_insert_chain_multiple(cluster_t clst, size_t count) {
+    cluster_t new_chain_start = 0;
+    cluster_t new_chain_end = 0;
+
+    fat_alloc_get_multiple(count, &new_chain_start);
+    new_chain_start = sector_to_cluster(new_chain_start);
+    new_chain_end = fat_find_last(new_chain_start);
+
+    fat_put(new_chain_end, fat_get(clst));
+    fat_put(clst, new_chain_start);
+}
+
+
+/* CLST가 포함된 체인의 마지막 클러스터를 반환합니다. */
+cluster_t
+fat_find_last(cluster_t clst) {
+    ASSERT(2 <= clst && clst <= fat_fs->last_clst);
+    cluster_t last = clst;
+    while(fat_get(last) != EOChain) {
+        last = fat_get(last);
+    }
+    return last;
 }
 
 /* Remove the chain of clusters starting from CLST.
