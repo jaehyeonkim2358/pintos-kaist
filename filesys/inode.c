@@ -165,10 +165,10 @@ inode_close (struct inode *inode) {
 		/* Deallocate blocks if removed. */
 		if (inode->removed) {
             fat_alloc_free(inode->sector);
-			// free_map_release (inode->sector, 1);
             fat_alloc_free(inode->data.start);
-			// free_map_release (inode->data.start, bytes_to_sectors (inode->data.length)); 
-		}
+		} else {
+            disk_write (filesys_disk, inode->sector, &inode->data);
+        }
 
 		free (inode); 
 	}
@@ -200,7 +200,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 		off_t inode_left = inode_length (inode) - offset;
 		int sector_left = DISK_SECTOR_SIZE - sector_ofs;
 		int min_left = inode_left < sector_left ? inode_left : sector_left;
-
+        
 		/* Number of bytes to actually copy out of this sector. */
 		int chunk_size = size < min_left ? size : min_left;
 		if (chunk_size <= 0) {
@@ -239,14 +239,17 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
  * (Normally a write at end of file would extend the inode, but
  * growth is not yet implemented.) */
 off_t
-inode_write_at (struct inode *inode, const void *buffer_, off_t size,
-		off_t offset) {
+inode_write_at (struct inode *inode, const void *buffer_, off_t size, off_t offset) {
 	const uint8_t *buffer = buffer_;
 	off_t bytes_written = 0;
 	uint8_t *bounce = NULL;
 
 	if (inode->deny_write_cnt) {
 		return 0;
+    }
+
+    if(inode_length(inode) <= offset) {
+        inode_extend_length(inode, offset - inode_length(inode) + size);
     }
 
 	while (size > 0) {
@@ -272,8 +275,9 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 			/* We need a bounce buffer. */
 			if (bounce == NULL) {
 				bounce = malloc (DISK_SECTOR_SIZE);
-				if (bounce == NULL)
+				if (bounce == NULL) {
 					break;
+                }
 			}
 
 			/* If the sector contains data before or after the chunk
@@ -322,4 +326,38 @@ inode_allow_write (struct inode *inode) {
 off_t
 inode_length (const struct inode *inode) {
 	return inode->data.length;
+}
+
+
+void
+inode_extend_length(struct inode *inode, off_t length) {
+    if(length <= 0) return;
+
+    off_t old_length = inode_length(inode);
+    off_t old_sectors = bytes_to_sectors(old_length);
+    off_t new_sectors = bytes_to_sectors(old_length + length);
+    disk_sector_t cursor;
+
+    if(old_sectors < new_sectors) {
+        if(old_sectors == 0) {
+            if(!fat_alloc_get_multiple (new_sectors, &inode->data.start)) {
+                PANIC("fat allocation failed");
+            }
+            cursor = inode->data.start;
+        } else {
+            cursor = fat_find_last(sector_to_cluster(inode->data.start));
+            fat_insert_chain_multiple(cursor, (new_sectors - old_sectors));
+            cursor = cluster_to_sector(fat_get(cursor));
+            new_sectors -= old_sectors;
+        }
+        static char zeros[DISK_SECTOR_SIZE];
+        size_t i;
+
+        for (i = 0; i < new_sectors; i++) {
+            disk_write (filesys_disk, cursor, zeros);
+            cursor = fat_get(cursor);
+        }
+        
+    }
+    inode->data.length += length;
 }
