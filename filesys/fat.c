@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "filesys/directory.h"
+
 /* Should be less than DISK_SECTOR_SIZE */
 struct fat_boot {
 	unsigned int magic;
@@ -163,7 +165,6 @@ fat_boot_create (void) {
  * 또한, 이 함수에서 다른 유용한 데이터를 초기화하고 싶어질수도 있습니다. (하고싶으면 하라는 뜻) */
 void
 fat_fs_init (void) {
-	/* TODO: Your code goes here. */
     // 파일시스템에 몇 개의 클러스터가 있는지에 대한 정보
     /* 클러스터는 Data area에서의 논리적 단위이므로, 
        [ 파일시스템에 존재하는 클러스터의 갯수 = ( filesys disk의 전체 섹터 수 - ( boot sector(1개) + fat가 차지하는 섹터 수 ) ) / 클러스터당 섹터 수 ] 이다. */
@@ -189,7 +190,6 @@ fat_fs_init (void) {
  * 새롭게 할당된 클러스터의 넘버를 리턴합니다. */
 cluster_t
 fat_create_chain (cluster_t clst) {
-	/* TODO: Your code goes here. */
     ASSERT(clst < fat_fs->fat_length);
 
     cluster_t new_clst = 0;
@@ -212,7 +212,10 @@ fat_create_chain (cluster_t clst) {
  * 만일 clst가 체인의 첫 번째 원소라면, pclst의 값은 0이어야 할 겁니다. */
 void
 fat_remove_chain (cluster_t clst, cluster_t pclst) {
-	/* TODO: Your code goes here. */
+    // data start보다 큰 값의 clst를 잠정적으로 sector번호라고 판단.
+	if(fat_fs->data_start <= clst) {
+        clst = sector_to_cluster(clst);
+    }
     cluster_t cur, next;
 
     if(pclst != 0) {
@@ -226,9 +229,13 @@ fat_remove_chain (cluster_t clst, cluster_t pclst) {
         cur = next;
 
         ASSERT(cur != FREE_ENTRY);
-        ASSERT(0 < cur);
-        ASSERT(cur <= fat_fs->last_clst);
     } while(cur != EOChain);
+}
+
+
+void
+fat_alloc_free(cluster_t clst) {
+    fat_remove_chain(clst, 0);
 }
 
 /* Update a value in the FAT table.
@@ -238,8 +245,6 @@ fat_remove_chain (cluster_t clst, cluster_t pclst) {
  * 이 함수는 연결관계를 업데이트하기 위해 사용될 수 있습니다. */
 void
 fat_put (cluster_t clst, cluster_t val) {
-	/* TODO: Your code goes here. */
-    // memset(fat_fs->fat + clst, val, sizeof(cluster_t));
     *(fat_fs->fat + clst) = val;
 }
 
@@ -247,9 +252,6 @@ fat_put (cluster_t clst, cluster_t val) {
  * clst가 가리키는 클러스터 넘버를 리턴합니다. */
 cluster_t
 fat_get (cluster_t clst) {
-	/* TODO: Your code goes here. */
-    // uint8_t buffer;
-    // memcpy(&buffer, fat_fs->fat + clst, sizeof(cluster_t));
     return (cluster_t)*(fat_fs->fat + clst);
 }
 
@@ -257,18 +259,26 @@ fat_get (cluster_t clst) {
  * 클러스터 넘버 clst를 상응하는 섹터 넘버로 변환하고, 그 섹터 넘버를 리턴합니다. */
 disk_sector_t
 cluster_to_sector (cluster_t clst) {
-	/* TODO: Your code goes here. */
     return fat_fs->data_start + clst;
 }
 
+
+/* 섹터 넘버 sect를 상응하는 클러스터 넘버로 변환하고, 그 클러스터 넘버를 리턴합니다. */
+cluster_t
+sector_to_cluster(disk_sector_t sect) {
+    return sect - fat_fs->data_start;
+}
+
 bool
-fat_alloc_get_multiple(size_t cnt, disk_sector_t *sectorp) {
-    ASSERT(0 < cnt && cnt <= fat_fs->last_clst);
+fat_alloc_get_multiple(size_t cnt, cluster_t *sectorp) {
+    ASSERT(0 <= cnt && cnt <= fat_fs->last_clst);
+
+    if(cnt == 0) return true;
 
     int clst_number = 2;
     cluster_t prev = EOChain;
 
-    while(cnt > 0 || clst_number <= fat_fs->last_clst) {
+    while(cnt > 0 && clst_number <= fat_fs->last_clst) {
         if(fat_get(clst_number) == FREE_ENTRY) {
             fat_put(clst_number, prev);
             prev = clst_number;
@@ -282,12 +292,33 @@ fat_alloc_get_multiple(size_t cnt, disk_sector_t *sectorp) {
     }
 
     if(prev != EOChain) {
-        *sectorp = prev;
+        *sectorp = cluster_to_sector(prev);
     }
     return prev != EOChain;
 }
 
 bool
-fat_alloc_get_clst(disk_sector_t *sectorp) {
+fat_alloc_get_clst(cluster_t *sectorp) {
     return fat_alloc_get_multiple(1, sectorp);
+}
+
+
+/* START로 부터 COUNT만큼 떨어진 클러스터에 대응하는 섹터 번호를 반환한다. */
+cluster_t
+fat_find_count(disk_sector_t start, size_t count) {
+    ASSERT(count >= 0);
+    cluster_t cursor = sector_to_cluster(start);
+
+    while(count > 0) {
+        cursor = fat_get(cursor);
+        count--;
+    }
+
+    ASSERT(cursor != EOChain);
+
+    if(count > 0) {
+        PANIC("count > cluster length");
+    }
+
+    return cluster_to_sector(cursor);
 }
