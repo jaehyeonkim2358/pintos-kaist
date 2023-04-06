@@ -363,7 +363,7 @@ bool address_check(bool write, char *ptr) {
         return false;
     }
     return true;
-#elif
+#else
     if (ptr == NULL) {
         return false;
     }
