@@ -362,12 +362,12 @@ bool address_check(bool write, char *ptr) {
     if (ptr == NULL) {
         return false;
     }
-#ifdef USERPROG
+#ifndef VM
     if (is_kernel_vaddr(ptr) || pml4_get_page(curr->pml4, ptr) == NULL) {
         return false;
     }
     return true;
-#elif VM
+#elif
     struct page *p = NULL;
     p = spt_find_page(&curr->spt, ptr);
 
@@ -378,8 +378,8 @@ bool address_check(bool write, char *ptr) {
             return false;
         }
     }
-#endif
     return true;
+#endif
 }
 
 #ifdef VM
