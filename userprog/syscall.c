@@ -356,13 +356,19 @@ void umount_handler(struct intr_frame *f UNUSED) {
 /* system call handler helper */
 bool address_check(bool write, char *ptr) {
     struct thread *curr = thread_current();
-    struct page *p = NULL;
 
     if (ptr == NULL) {
         return false;
     }
-
+#ifdef USERPROG
+    if (is_kernel_vaddr(ptr) || pml4_get_page(curr->pml4, ptr) == NULL) {
+        return false;
+    }
+    return true;
+#elif VM
+    struct page *p = NULL;
     p = spt_find_page(&curr->spt, ptr);
+
     if (p == NULL) {
         return false;
     } else {
@@ -370,6 +376,7 @@ bool address_check(bool write, char *ptr) {
             return false;
         }
     }
+#endif
     return true;
 }
 
