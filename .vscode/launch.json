@@ -1,14 +1,22 @@
 {
-    "configurations": [
-      {
-        "type": "gdb",
-        "request": "attach",
-        "name": "Attach to gdbserver",
-        "executable": "${fileDirname}/build/kernel.o",
-        "target": "localhost:1234",
-        "remote": true,
-        "cwd": "${workspaceRoot}",
-        "valuesFormatting": "parseText"
-      }
-    ]
-  }
+  "configurations": [
+    {
+      "type": "gdb",
+      "request": "attach",
+      "name": "Attach to gdbserver",
+      "executable": "${fileDirname}/build/kernel.o",
+      "target": "localhost:1234",
+      "remote": true,
+      "cwd": "${workspaceRoot}",
+      "valuesFormatting": "parseText"
+    },
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "lldb",
+      "request": "launch",
+      "args": [],
+      "cwd": "/Users/jjaejjae/CS/pintos-kaist",
+      "program": "/Users/jjaejjae/CS/pintos-kaist/build/Debug/outDebug"
+    }
+  ]
+}
