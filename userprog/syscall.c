@@ -295,7 +295,7 @@ void close_handler(struct intr_frame *f) {
 
     fd_table_remove(fd);
 }
-
+#ifdef VM
 /* PROJECT3 */
 void mmap_handler(struct intr_frame *f) {
     void *addr = (void *)F_ARG1;
@@ -324,7 +324,7 @@ void mnumap_handler(struct intr_frame *f) {
         do_munmap(addr);
     }
 }
-
+#endif
 void chdir_handler(struct intr_frame *f UNUSED) {
 }
 
@@ -380,6 +380,7 @@ bool address_check(bool write, char *ptr) {
     return true;
 }
 
+#ifdef VM
 bool mmap_check(char *ptr, size_t length, off_t offset) {
     struct thread *curr = thread_current();
 
@@ -399,6 +400,7 @@ bool mmap_check(char *ptr, size_t length, off_t offset) {
 
     return true;
 }
+#endif
 
 void kern_exit(struct intr_frame *f, int status) {
     F_ARG1 = status;
