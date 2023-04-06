@@ -62,13 +62,13 @@ void exception_init(void) {
     intr_register_int(14, 0, INTR_OFF, page_fault, "#PF Page-Fault Exception");
 }
 
-#ifdef VM
 /* Prints exception statistics. */
 void exception_print_stats(void) {
     printf("🙈 Exception: %lld page faults\n", page_fault_cnt);
+#ifdef VM
     printf("👽 Eviction: %lld eviction\n", eviction_count);
-}
 #endif
+}
 
 /* Handler for an exception (probably) caused by a user process. */
 static void

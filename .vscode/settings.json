@@ -16,7 +16,10 @@
         "iosfwd": "c",
         "thread.h": "c",
         "interrupt.h": "c",
-        "synch.h": "c"
+        "synch.h": "c",
+        "exception.h": "c",
+        "syscall.h": "c",
+        "gdt.h": "c"
     },
     "C_Cpp_Runner.cCompilerPath": "clang",
     "C_Cpp_Runner.cppCompilerPath": "clang++",
