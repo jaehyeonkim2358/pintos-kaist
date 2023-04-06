@@ -73,8 +73,10 @@ struct system_call syscall_list[] = {
     {SYS_SEEK, seek_handler},
     {SYS_TELL, tell_handler},
     {SYS_CLOSE, close_handler},
+#ifdef VM
     {SYS_MMAP, mmap_handler},
     {SYS_MUNMAP, mnumap_handler},
+#endif
     {SYS_CHDIR, chdir_handler},
     {SYS_MKDIR, mkdir_handler},
     {SYS_READDIR, readdir_handler},
